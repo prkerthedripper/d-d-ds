@@ -17,6 +17,10 @@ export const state = {
   online: [],
   srd: { spells: [], conditions: [], classes: [], races: [], skills: {}, monsters: [] },
   attackFrom: null, // combatant id picking a target
+  entries: [],
+  codexTab: 'quest',
+  turnAlert: null, // combatant whose turn just started, shown as a popup
+  lastTurnKey: null, // guards against re-alerting on every render
   page: 'home',
   modal: null,
   filter: '',
@@ -86,8 +90,25 @@ export function ago(ts) {
 export const isDM = () => state.campaign?.role === 'dm';
 export const myChars = () => state.characters.filter((c) => c.ownerId === state.user?.id);
 
-export function avatar(name, extra = '') {
+/**
+ * Round avatar. Falls back to initials when there is no portrait.
+ * @param {string} name
+ * @param {string} extra  extra classes, e.g. 'lg' or 'on'
+ * @param {string} image  data URI
+ */
+export function avatar(name, extra = '', image = '') {
+  if (image) {
+    return `<div class="avatar ${extra}" style="background-image:url('${esc(image)}')"
+      role="img" aria-label="${esc(name)}"></div>`;
+  }
   return `<div class="avatar ${extra}">${esc(initials(name))}</div>`;
+}
+
+/** Portrait for a combatant, looked up from its character when it has one. */
+export function portraitOf(combatant) {
+  if (combatant.image) return combatant.image;
+  const sheet = combatant.charId && state.characters.find((c) => c.id === combatant.charId);
+  return sheet?.portrait || '';
 }
 
 export function hpBar(hp, maxHp) {
@@ -199,6 +220,9 @@ export async function openCampaign(id) {
   state.messages = data.messages;
   state.campaignInvites = data.invites || [];
   state.presets = data.presets || [];
+  state.entries = data.entries || [];
+  state.lastTurnKey = null; // a fresh load should not fire a stale turn alert
+  state.turnAlert = null;
   state.selectedCharId = myChars()[0]?.id || state.characters[0]?.id || null;
   state.page = 'home';
   localStorage.setItem('dndds-campaign', id);
@@ -208,6 +232,57 @@ export async function openCampaign(id) {
 
 export async function refresh() {
   if (state.campaign) await openCampaign(state.campaign.id);
+}
+
+// ---------------------------------------------------------------- turn alert
+
+/** A short rising chime, synthesised so there is no audio file to ship. */
+function chime() {
+  try {
+    const Ctx = window.AudioContext || window.webkitAudioContext;
+    if (!Ctx) return;
+    const ctx = new Ctx();
+    [660, 880].forEach((freq, i) => {
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      osc.type = 'sine';
+      osc.frequency.value = freq;
+      const t = ctx.currentTime + i * 0.14;
+      gain.gain.setValueAtTime(0.0001, t);
+      gain.gain.exponentialRampToValueAtTime(0.25, t + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.3);
+      osc.connect(gain).connect(ctx.destination);
+      osc.start(t);
+      osc.stop(t + 0.32);
+    });
+    setTimeout(() => ctx.close(), 900);
+  } catch { /* audio blocked until the user interacts — not worth surfacing */ }
+}
+
+/**
+ * Fire the "your turn" popup when the active combatant becomes one this user
+ * controls. Keyed on round+index so it triggers once per turn, not per render.
+ */
+export function checkMyTurn() {
+  const { active, combatants, turnIndex, round } = state.combat;
+  if (!active || !combatants.length) {
+    state.lastTurnKey = null;
+    state.turnAlert = null;
+    return;
+  }
+
+  const current = combatants[turnIndex % combatants.length];
+  const key = `${round}:${turnIndex}:${current?.id}`;
+  if (key === state.lastTurnKey) return;
+  state.lastTurnKey = key;
+
+  const isMine = current?.charId
+    && state.characters.some((c) => c.id === current.charId && c.ownerId === state.user?.id);
+  if (!isMine) return;
+
+  state.turnAlert = current;
+  chime();
+  if (navigator.vibrate) navigator.vibrate([160, 80, 160]);
 }
 
 // ---------------------------------------------------------------- socket
@@ -223,7 +298,11 @@ export function initSocket() {
       case 'campaign': state.campaign = { ...state.campaign, ...data }; break;
       case 'members': state.members = data; break;
       case 'characters': state.characters = data; break;
-      case 'combat': state.combat = data; break;
+      case 'entries': state.entries = data; break;
+      case 'combat':
+        state.combat = data;
+        checkMyTurn();
+        break;
       case 'notes': state.notes = data; break;
       case 'invites': state.campaignInvites = data; break;
       case 'presets':

@@ -8,12 +8,21 @@ everyone on their own phone, everything synced instantly.
 - **Accounts** — email + password, no verification step
 - **Campaigns & invites** — the DM invites players by email; the invite is waiting
   when they sign in with that address
-- **Character sheets** — abilities, HP, AC, skills, conditions, spell slots, coins
+- **Character sheets** — abilities, HP, AC, skills, conditions, spell slots, coins,
+  and a **portrait** you upload from your phone (resized in the browser, so a 4 MB
+  photo becomes ~40 KB before it is stored)
+- **Campaign Codex** — quests, NPCs, locations, shops and a session timeline, each
+  with its own picture. Anything the DM marks DM-only never reaches players
 - **Inventory** — per character, with weight and quantities
 - **Dice roller** — full notation (`2d6+3`, `4d6kh3`), advantage/disadvantage,
   and a shared roll log the whole party sees
 - **Combat tracker** — initiative order, HP, conditions, turn/round advancement
   - Everyone rolls their **own** initiative; the DM can roll for the stragglers
+  - The order sorts itself highest-first and cycles automatically, ticking the
+    round over when it wraps
+  - When your turn comes up you get a full-screen **"IT'S YOUR TURN TO ATTACK"**
+    takeover with a chime, a buzz on phones, your attacks and every target one tap
+    away — so nobody misses their turn
   - **Attacks actually resolve**: d20 + to-hit against the target's AC, then damage
     dice, applied to their HP and written to the combat log. Rolled on the server so
     nobody can fudge it and everyone sees the same numbers

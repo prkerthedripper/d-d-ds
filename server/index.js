@@ -24,7 +24,7 @@ if (PROD && SECRET === 'dev-secret-change-me') {
 await migrate();
 
 const app = express();
-app.use(express.json({ limit: '1mb' }));
+app.use(express.json({ limit: '2mb' })); // portraits arrive as base64 data URIs
 app.set('trust proxy', 1);
 
 const server = http.createServer(app);
@@ -281,6 +281,7 @@ app.get('/api/campaigns/:id', auth, requireMember, wrap(async (req, res) => {
     rolls: await loadRolls(id),
     messages: await loadMessages(id),
     invites: isDM ? await all('SELECT id, email, status FROM invites WHERE campaign_id = ?', [id]) : [],
+    entries: await loadEntries(id, isDM),
     presets: (await all('SELECT * FROM enemy_presets WHERE campaign_id = ? ORDER BY name', [id])).map((r) => ({
       id: r.id, name: r.name, cr: r.cr, hp: r.hp, ac: r.ac,
       initBonus: r.init_bonus, speed: r.speed, attacks: P(r.attacks, []), note: r.note,
@@ -393,7 +394,11 @@ async function characterAccess(req, res, next) {
 app.patch('/api/characters/:id', auth, wrap(characterAccess), wrap(async (req, res) => {
   for (const [key, col] of Object.entries(CHAR_FIELDS)) {
     if (req.body[key] === undefined) continue;
-    const value = typeof req.body[key] === 'number' ? Math.round(req.body[key]) : String(req.body[key]);
+    const raw = req.body[key];
+    // Portraits are data URIs, so they get validated and size-capped.
+    const value = key === 'portrait' ? checkImage(raw)
+      : typeof raw === 'number' ? Math.round(raw)
+        : String(raw);
     await run(`UPDATE characters SET ${col} = ? WHERE id = ?`, [value, req.params.id]);
   }
   for (const [key, col] of Object.entries(CHAR_JSON)) {
@@ -684,6 +689,131 @@ app.post('/api/campaigns/:id/combat/attack', auth, requireMember, wrap(async (re
   await logCombat(req.campaignId, req.user.id, line);
 
   res.json({ hit, crit: hitRoll.crit, attackRoll: hitRoll.total, damage: damage?.total ?? 0, line });
+}));
+
+/**
+ * Advance the turn. The DM may always do it; a player may end their own turn.
+ * Wrapping past the last combatant starts the next round.
+ */
+app.post('/api/campaigns/:id/combat/next-turn', auth, requireMember, wrap(async (req, res) => {
+  const combat = await loadCombat(req.campaignId);
+  const characters = await loadCharacters(req.campaignId);
+  const n = combat.combatants.length;
+  if (!n) throw bad('Nobody is in the fight');
+
+  const current = combat.combatants[combat.turnIndex % n];
+  if (!canControl(current, req.membership, req.user.id, characters)) {
+    throw bad('Only the DM or whoever’s turn it is can end this turn', 403);
+  }
+
+  const next = combat.turnIndex + 1;
+  combat.turnIndex = next % n;
+  if (next >= n) combat.round += 1;
+
+  await persistCombat(req.campaignId, combat);
+  const up = combat.combatants[combat.turnIndex];
+  if (next >= n) await logCombat(req.campaignId, req.user.id, `— Round ${combat.round} —`);
+  await logCombat(req.campaignId, req.user.id, `${up.name} is up.`);
+  res.json({ turnIndex: combat.turnIndex, round: combat.round });
+}));
+
+// ---------------------------------------------------------------- codex
+
+const KINDS = ['quest', 'npc', 'location', 'shop', 'event'];
+const MAX_IMAGE = 700_000; // ~700 KB of base64, plenty for a resized photo
+
+function shapeEntry(r) {
+  return {
+    id: r.id, kind: r.kind, title: r.title, subtitle: r.subtitle, body: r.body,
+    image: r.image, status: r.status, data: P(r.data, {}), dmOnly: !!r.dm_only,
+    authorId: r.author_id, updatedAt: Number(r.updated_at),
+  };
+}
+
+async function loadEntries(campaignId, viewerIsDM) {
+  const rows = await all('SELECT * FROM entries WHERE campaign_id = ? ORDER BY updated_at DESC', [campaignId]);
+  return rows.filter((r) => viewerIsDM || !r.dm_only).map(shapeEntry);
+}
+
+/** Entries are visibility-filtered, so DM and players get different payloads. */
+async function pushEntries(campaignId) {
+  const members = await loadMembers(campaignId);
+  const forPlayers = await loadEntries(campaignId, false);
+  const forDM = await loadEntries(campaignId, true);
+  for (const m of members) {
+    io.to(`u:${m.id}:${campaignId}`).emit('patch', {
+      scope: 'entries', data: m.role === 'dm' ? forDM : forPlayers,
+    });
+  }
+}
+
+function checkImage(image) {
+  const value = String(image || '');
+  if (!value) return '';
+  if (!/^data:image\/(png|jpeg|jpg|webp|gif);base64,/.test(value)) throw bad('That is not a valid image');
+  if (value.length > MAX_IMAGE) throw bad('That image is too big — try a smaller one');
+  return value;
+}
+
+app.post('/api/campaigns/:id/entries', auth, requireMember, wrap(async (req, res) => {
+  const b = req.body || {};
+  const kind = KINDS.includes(b.kind) ? b.kind : 'npc';
+  const id = uid();
+
+  await run(
+    `INSERT INTO entries (id, campaign_id, kind, title, subtitle, body, image, status, data, dm_only, author_id, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [id, req.campaignId, kind, String(b.title || 'Untitled').slice(0, 90),
+      String(b.subtitle || '').slice(0, 120), String(b.body || '').slice(0, 8000),
+      checkImage(b.image), String(b.status || '').slice(0, 30),
+      J(b.data || {}), req.membership.role === 'dm' && b.dmOnly ? 1 : 0,
+      req.user.id, now(), now()],
+  );
+
+  await pushEntries(req.campaignId);
+  res.json({ id });
+}));
+
+const entryAccess = wrap(async (req, res, next) => {
+  const entry = await get('SELECT * FROM entries WHERE id = ?', [req.params.id]);
+  if (!entry) return res.status(404).json({ error: 'Not found' });
+  const m = await membership(entry.campaign_id, req.user.id);
+  if (!m) return res.status(403).json({ error: 'Not your campaign' });
+  if (entry.author_id !== req.user.id && m.role !== 'dm') {
+    return res.status(403).json({ error: 'Only the author or the DM can change this' });
+  }
+  req.entry = entry;
+  req.membership = m;
+  req.campaignId = entry.campaign_id;
+  next();
+});
+
+app.patch('/api/entries/:id', auth, entryAccess, wrap(async (req, res) => {
+  const cols = { title: 'title', subtitle: 'subtitle', body: 'body', status: 'status' };
+  for (const [key, col] of Object.entries(cols)) {
+    if (req.body[key] !== undefined) {
+      await run(`UPDATE entries SET ${col} = ? WHERE id = ?`, [String(req.body[key]), req.params.id]);
+    }
+  }
+  if (req.body.image !== undefined) {
+    await run('UPDATE entries SET image = ? WHERE id = ?', [checkImage(req.body.image), req.params.id]);
+  }
+  if (req.body.data !== undefined) {
+    await run('UPDATE entries SET data = ? WHERE id = ?', [J(req.body.data), req.params.id]);
+  }
+  if (req.body.dmOnly !== undefined && req.membership.role === 'dm') {
+    await run('UPDATE entries SET dm_only = ? WHERE id = ?', [req.body.dmOnly ? 1 : 0, req.params.id]);
+  }
+  await run('UPDATE entries SET updated_at = ? WHERE id = ?', [now(), req.params.id]);
+
+  await pushEntries(req.campaignId);
+  res.json({ ok: true });
+}));
+
+app.delete('/api/entries/:id', auth, entryAccess, wrap(async (req, res) => {
+  await run('DELETE FROM entries WHERE id = ?', [req.params.id]);
+  await pushEntries(req.campaignId);
+  res.json({ ok: true });
 }));
 
 // ---------------------------------------------------------------- enemy presets

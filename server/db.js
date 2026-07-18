@@ -141,6 +141,23 @@ const SCHEMA = [
     portrait TEXT DEFAULT '',
     created_at BIGINT NOT NULL
   )`,
+  // One table behind the whole campaign codex: quests, NPCs, locations, shops
+  // and timeline events differ only by `kind` and what lives in `data`.
+  `CREATE TABLE IF NOT EXISTS entries (
+    id TEXT PRIMARY KEY,
+    campaign_id TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    title TEXT NOT NULL,
+    subtitle TEXT DEFAULT '',
+    body TEXT DEFAULT '',
+    image TEXT DEFAULT '',
+    status TEXT DEFAULT '',
+    data TEXT NOT NULL,
+    dm_only INTEGER DEFAULT 0,
+    author_id TEXT NOT NULL,
+    created_at BIGINT NOT NULL,
+    updated_at BIGINT NOT NULL
+  )`,
   `CREATE TABLE IF NOT EXISTS enemy_presets (
     id TEXT PRIMARY KEY,
     campaign_id TEXT NOT NULL,
@@ -230,5 +247,6 @@ export async function migrate() {
   await run(`CREATE INDEX IF NOT EXISTS idx_rolls_campaign ON rolls(campaign_id)`);
   await run(`CREATE INDEX IF NOT EXISTS idx_msg_campaign ON messages(campaign_id)`);
   await run(`CREATE INDEX IF NOT EXISTS idx_presets_campaign ON enemy_presets(campaign_id)`);
+  await run(`CREATE INDEX IF NOT EXISTS idx_entries_campaign ON entries(campaign_id, kind)`);
   console.log(`[db] ready (${usePg ? 'postgres' : 'sqlite'})`);
 }

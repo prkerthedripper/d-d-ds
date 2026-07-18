@@ -1,9 +1,10 @@
 // Page rendering + user actions.
 import {
   state, api, esc, mod, signed, avatar, hpBar, nameOf, ago, isDM, myChars,
-  toast, on, render, loadMe, openCampaign,
+  toast, on, render, loadMe, openCampaign, portraitOf,
 } from './core.js';
 import { icon } from './icons.js';
+import { pickImage } from './images.js';
 
 export const NAV = [
   { id: 'home', label: 'Home', icon: 'home' },
@@ -12,6 +13,7 @@ export const NAV = [
   { id: 'dice', label: 'Dice Roller', icon: 'dice' },
   { id: 'combat', label: 'Combat', icon: 'swords' },
   { id: 'spells', label: 'Spells', icon: 'sparkles' },
+  { id: 'codex', label: 'Codex', icon: 'book' },
   { id: 'notes', label: 'Notes', icon: 'notes' },
   { id: 'chat', label: 'Chat', icon: 'chat' },
   { id: 'settings', label: 'Settings', icon: 'settings' },
@@ -207,8 +209,76 @@ export function shellView() {
         </button>`).join('')}
     </nav>
   </div>
+  ${state.turnAlert ? turnAlertView() : ''}
   ${state.modal ? modalView() : ''}`;
 }
+
+/** Full-screen "it's your turn" takeover, with the attacks right there. */
+function turnAlertView() {
+  const c = state.turnAlert;
+  const sheet = c.charId ? state.characters.find((x) => x.id === c.charId) : null;
+  const attacks = sheet?.attacks?.length ? sheet.attacks : (c.attacks || []);
+  const enemies = state.combat.combatants.filter((x) => x.id !== c.id && x.hp > 0);
+
+  return `
+  <div class="turn-alert">
+    <div class="turn-card">
+      <div class="turn-flash">Round ${state.combat.round}</div>
+      <h1>IT’S YOUR TURN<br />TO ATTACK</h1>
+      <div class="row" style="justify-content:center;margin:16px 0">
+        ${avatar(c.name, 'xl', portraitOf(c))}
+      </div>
+      <h2 style="font-size:22px">${esc(c.name)}</h2>
+      <p class="muted" style="margin-top:4px">${c.hp}/${c.maxHp} HP · AC ${c.ac}</p>
+
+      ${attacks.length && enemies.length ? `
+        <p class="tiny" style="margin:16px 0 8px">ATTACK SOMEONE</p>
+        <div class="stack">
+          ${attacks.slice(0, 4).map((a, ai) => `
+            <div class="card" style="padding:10px">
+              <div style="font-weight:650;font-size:14px;margin-bottom:7px">
+                ${icon('sword', { size: 14 })} ${esc(a.name)}
+                <span class="tiny mono">${signed(a.toHit)} · ${esc(a.damage)}</span>
+              </div>
+              <div class="row">
+                ${enemies.slice(0, 6).map((e) => `
+                  <button class="btn sm" data-act="turn-attack"
+                    data-attacker="${c.id}" data-target="${e.id}" data-index="${ai}">
+                    ${esc(e.name)} <span class="tiny">${e.hp}hp</span>
+                  </button>`).join('')}
+              </div>
+            </div>`).join('')}
+        </div>`
+      : `<p class="muted" style="margin-top:16px">
+          ${attacks.length ? 'Nothing left to attack.' : 'No attacks on your sheet yet — add one on your character.'}
+        </p>`}
+
+      <div class="row" style="margin-top:18px">
+        <button class="btn grow" data-act="dismiss-turn">Close</button>
+        <button class="btn primary grow" data-act="end-my-turn">
+          End my turn ${icon('arrowRight', { size: 15 })}</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+on('dismiss-turn', () => { state.turnAlert = null; render(); });
+
+on('turn-attack', async (el) => {
+  const r = await api('POST', `/api/campaigns/${state.campaign.id}/combat/attack`, {
+    attackerId: el.dataset.attacker,
+    targetId: el.dataset.target,
+    index: Number(el.dataset.index),
+    mode: state.rollMode || 'normal',
+  });
+  toast(r.hit ? `${r.crit ? 'CRIT! ' : ''}Hit for ${r.damage}` : `Miss (rolled ${r.attackRoll})`);
+});
+
+on('end-my-turn', async () => {
+  state.turnAlert = null;
+  render();
+  await api('POST', `/api/campaigns/${state.campaign.id}/combat/next-turn`);
+});
 
 on('go', (el) => { state.page = el.dataset.page; state.filter = ''; render(); });
 on('theme', () => {
@@ -222,9 +292,15 @@ on('switch-campaign', () => { state.campaign = null; render(); });
 
 function turnOrder() {
   if (state.combat.active && state.combat.combatants.length) {
-    return state.combat.combatants.map((c) => ({ name: c.name, sub: c.type === 'enemy' ? 'Enemy' : c.sub || 'Ally' }));
+    return state.combat.combatants.map((c) => ({
+      name: c.name,
+      sub: c.type === 'enemy' ? 'Enemy' : c.sub || 'Ally',
+      image: portraitOf(c),
+    }));
   }
-  return state.characters.map((c) => ({ name: c.name, sub: c.class || 'Adventurer', ownerId: c.ownerId }));
+  return state.characters.map((c) => ({
+    name: c.name, sub: c.class || 'Adventurer', ownerId: c.ownerId, image: c.portrait,
+  }));
 }
 
 function topbarView() {
@@ -238,7 +314,7 @@ function topbarView() {
     <div class="tt-row">
       ${list.slice(0, 8).map((c, i) => `
         <div class="tt-chip ${i === idx ? 'on' : ''}">
-          ${avatar(c.name, c.ownerId && state.online.includes(c.ownerId) ? 'on' : '')}
+          ${avatar(c.name, c.ownerId && state.online.includes(c.ownerId) ? 'on' : '', c.image || '')}
           <div><div class="nm">${esc(c.name)}</div><div class="sub">${esc(c.sub)}</div></div>
         </div>`).join('')
       || '<span class="muted">No characters yet</span>'}
@@ -260,6 +336,7 @@ function pageView() {
     case 'dice': return diceView();
     case 'combat': return combatView();
     case 'spells': return spellsView();
+    case 'codex': return codexView();
     case 'notes': return notesView();
     case 'chat': return chatView();
     case 'settings': return settingsView();
@@ -292,7 +369,7 @@ function homeView() {
       <div class="stack">
         ${state.characters.length ? state.characters.map((c) => `
           <div class="row" style="flex-wrap:nowrap">
-            ${avatar(c.name, state.online.includes(c.ownerId) ? 'on' : '')}
+            ${avatar(c.name, state.online.includes(c.ownerId) ? 'on' : '', c.portrait)}
             <div class="grow">
               <div class="spread">
                 <span style="font-size:13.5px;font-weight:650">${esc(c.name)}</span>
@@ -360,7 +437,7 @@ function charactersView() {
       ${state.characters.map((ch) => `
         <button class="card row" style="cursor:pointer;text-align:left;flex-wrap:nowrap;border-color:${ch.id === c?.id ? 'var(--accent)' : 'var(--line)'}"
                 data-act="select-char" data-id="${ch.id}">
-          ${avatar(ch.name, state.online.includes(ch.ownerId) ? 'on' : '')}
+          ${avatar(ch.name, state.online.includes(ch.ownerId) ? 'on' : '', ch.portrait)}
           <div class="grow">
             <div style="font-weight:650;font-size:14px">${esc(ch.name)}</div>
             <div class="tiny">Lv ${ch.level} ${esc(ch.race)} ${esc(ch.class)}</div>
@@ -381,7 +458,11 @@ function sheetView(c) {
   <div class="stack">
     <div class="card">
       <div class="row" style="flex-wrap:nowrap;align-items:flex-start">
-        ${avatar(c.name, 'lg')}
+        <div class="portrait-slot">
+          ${avatar(c.name, 'lg', c.portrait)}
+          ${mine ? `<button class="portrait-edit" data-act="set-portrait" data-id="${c.id}"
+            title="Change picture">${icon('edit', { size: 13 })}</button>` : ''}
+        </div>
         <div class="grow">
           <div class="spread">
             <div>
@@ -506,6 +587,13 @@ function sheetView(c) {
 }
 
 on('select-char', (el) => { state.selectedCharId = el.dataset.id; render(); });
+
+on('set-portrait', async (el) => {
+  const image = await pickImage(420);
+  if (!image) return;
+  await api('PATCH', `/api/characters/${el.dataset.id}`, { portrait: image });
+  toast('Picture updated');
+});
 
 on('hp', async (el) => {
   const c = state.characters.find((x) => x.id === el.dataset.id);
@@ -762,7 +850,7 @@ function initRow(c, i, turnIndex, dm) {
        ${targeting ? `data-act="pick-target" data-id="${c.id}"` : ''}>
     <span class="n">${i + 1}</span>
     <span class="mono" style="width:30px;font-weight:700">${needsInit ? '—' : c.init}</span>
-    ${avatar(c.name)}
+    ${avatar(c.name, '', portraitOf(c))}
     <div class="grow">
       <div class="spread">
         <span style="font-weight:650;font-size:14px">
@@ -847,15 +935,8 @@ on('pick-target', async (el) => {
   toast(r.hit ? `${r.crit ? 'CRIT! ' : ''}Hit for ${r.damage}` : `Miss (rolled ${r.attackRoll})`);
 });
 
-on('next-turn', () => {
-  const n = state.combat.combatants.length;
-  if (!n) return;
-  const next = state.combat.turnIndex + 1;
-  return saveCombat({
-    turnIndex: next % n,
-    round: next >= n ? state.combat.round + 1 : state.combat.round,
-  });
-});
+// Goes through the server so the log is written and players can end their own turn.
+on('next-turn', () => api('POST', `/api/campaigns/${state.campaign.id}/combat/next-turn`));
 
 on('c-hp', (el) => {
   const combatants = state.combat.combatants.map((c, i) => (
@@ -934,6 +1015,212 @@ on('know-spell', async (el) => {
   const name = el.dataset.name;
   const spells = c.spells.includes(name) ? c.spells.filter((s) => s !== name) : [...c.spells, name];
   await api('PATCH', `/api/characters/${c.id}`, { spells });
+});
+
+// ---------------------------------------------------------------- codex
+
+const KINDS = [
+  { id: 'quest', label: 'Quests', one: 'Quest', icon: 'star', sub: 'Given by', statuses: ['Active', 'Completed', 'Failed', 'Rumour'] },
+  { id: 'npc', label: 'NPCs', one: 'NPC', icon: 'users', sub: 'Role or race', statuses: ['Friendly', 'Neutral', 'Hostile', 'Unknown', 'Dead'] },
+  { id: 'location', label: 'Locations', one: 'Location', icon: 'home', sub: 'Region', statuses: ['Visited', 'Known', 'Unexplored'] },
+  { id: 'shop', label: 'Shops', one: 'Shop', icon: 'backpack', sub: 'Owner', statuses: ['Open', 'Closed'] },
+  { id: 'event', label: 'Timeline', one: 'Event', icon: 'hourglass', sub: 'In-world date', statuses: [] },
+];
+
+const kindOf = (id) => KINDS.find((k) => k.id === id) || KINDS[0];
+
+function codexView() {
+  const tab = state.codexTab || 'quest';
+  const kind = kindOf(tab);
+  const q = state.filter.toLowerCase();
+
+  let list = state.entries.filter((e) => e.kind === tab);
+  if (q) list = list.filter((e) => `${e.title} ${e.subtitle} ${e.body}`.toLowerCase().includes(q));
+  if (tab === 'event') list = [...list].reverse(); // timeline reads oldest first
+
+  return `
+  <div class="page-head spread">
+    <div><h1>Campaign Codex</h1><p>Everything your party knows about the world.</p></div>
+    <button class="btn primary" data-act="modal" data-name="new-entry">
+      ${icon('plus', { size: 15 })} New ${kind.one}</button>
+  </div>
+
+  <div class="row" style="margin-bottom:14px">
+    ${KINDS.map((k) => `
+      <button class="pill ${tab === k.id ? 'on' : ''}" data-act="codex-tab" data-tab="${k.id}">
+        ${icon(k.icon, { size: 14 })} ${k.label}
+        <span class="tiny">${state.entries.filter((e) => e.kind === k.id).length}</span>
+      </button>`).join('')}
+  </div>
+
+  <input placeholder="Search the codex…" data-live="filter" data-keep="cx-q"
+         value="${esc(state.filter)}" style="margin-bottom:14px" />
+
+  ${tab === 'event' ? timelineView(list) : `
+    <div class="grid g2">
+      ${list.map((e) => entryCard(e)).join('')
+        || `<div class="card empty"><div class="big">${icon(kind.icon, { size: 34 })}</div>
+            Nothing here yet. Add your first ${kind.one.toLowerCase()}.</div>`}
+    </div>`}`;
+}
+
+function entryCard(e) {
+  const mine = e.authorId === state.user.id || isDM();
+  return `
+  <div class="card entry-card">
+    ${e.image ? `<div class="entry-img" style="background-image:url('${esc(e.image)}')"></div>` : ''}
+    <div class="grow">
+      <div class="spread">
+        <div class="row">
+          <strong style="font-size:15px">${esc(e.title)}</strong>
+          ${e.status ? `<span class="tag ${e.status === 'Hostile' || e.status === 'Failed' || e.status === 'Dead' ? 'red' : ''}">${esc(e.status)}</span>` : ''}
+          ${e.dmOnly ? `<span class="tag red">DM</span>` : ''}
+        </div>
+        ${mine ? `<div class="row" style="flex-wrap:nowrap">
+          <button class="btn sm" data-act="modal" data-name="edit-entry" data-id="${e.id}">
+            ${icon('edit', { size: 13 })}</button>
+          <button class="btn sm danger" data-act="entry-del" data-id="${e.id}">
+            ${icon('trash', { size: 13 })}</button>
+        </div>` : ''}
+      </div>
+      ${e.subtitle ? `<div class="tiny" style="margin-top:3px">${esc(e.subtitle)}</div>` : ''}
+      ${e.body ? `<p class="muted" style="margin-top:8px;white-space:pre-wrap">${esc(e.body)}</p>` : ''}
+      ${e.kind === 'shop' && (e.data.stock || []).length ? `
+        <table style="margin-top:10px">
+          ${e.data.stock.map((s) => `<tr>
+            <td style="padding:5px 0">${esc(s.name)}</td>
+            <td style="padding:5px 0;text-align:right" class="mono">${esc(s.price)}</td>
+          </tr>`).join('')}
+        </table>` : ''}
+    </div>
+  </div>`;
+}
+
+function timelineView(list) {
+  if (!list.length) {
+    return `<div class="card empty"><div class="big">${icon('hourglass', { size: 34 })}</div>
+      No events yet. Log what happened each session.</div>`;
+  }
+  return `<div class="timeline">
+    ${list.map((e) => `
+      <div class="tl-item">
+        <div class="tl-dot"></div>
+        <div class="card grow">
+          <div class="spread">
+            <div>
+              <strong style="font-size:15px">${esc(e.title)}</strong>
+              ${e.subtitle ? `<div class="tiny">${esc(e.subtitle)}</div>` : ''}
+            </div>
+            ${e.authorId === state.user.id || isDM() ? `<div class="row" style="flex-wrap:nowrap">
+              <button class="btn sm" data-act="modal" data-name="edit-entry" data-id="${e.id}">
+                ${icon('edit', { size: 13 })}</button>
+              <button class="btn sm danger" data-act="entry-del" data-id="${e.id}">
+                ${icon('trash', { size: 13 })}</button>
+            </div>` : ''}
+          </div>
+          ${e.body ? `<p class="muted" style="margin-top:8px;white-space:pre-wrap">${esc(e.body)}</p>` : ''}
+        </div>
+      </div>`).join('')}
+  </div>`;
+}
+
+on('codex-tab', (el) => { state.codexTab = el.dataset.tab; state.filter = ''; render(); });
+
+on('entry-del', async (el) => {
+  if (!confirm('Delete this entry?')) return;
+  await api('DELETE', `/api/entries/${el.dataset.id}`);
+});
+
+function entryModal(e) {
+  const kind = kindOf(e ? e.kind : state.codexTab);
+  const draftImage = state.draftImage ?? e?.image ?? '';
+
+  return `
+  <h2>${e ? 'Edit' : 'New'} ${kind.one}</h2>
+  <form data-act="save-entry" data-id="${e?.id || ''}" data-kind="${kind.id}">
+    <div class="row" style="align-items:flex-start;flex-wrap:nowrap;margin-bottom:12px">
+      <div class="portrait-slot">
+        ${draftImage
+          ? `<div class="avatar lg" style="background-image:url('${esc(draftImage)}')"></div>`
+          : '<div class="avatar lg">?</div>'}
+        <button type="button" class="portrait-edit" data-act="pick-entry-image"
+          title="Add a picture">${icon('edit', { size: 13 })}</button>
+      </div>
+      <div class="grow">
+        <label class="field"><span>Name</span>
+          <input name="title" data-keep="et" value="${esc(e?.title || '')}" required /></label>
+        <label class="field"><span>${kind.sub}</span>
+          <input name="subtitle" data-keep="es" value="${esc(e?.subtitle || '')}" /></label>
+      </div>
+    </div>
+
+    ${kind.statuses.length ? `<label class="field"><span>Status</span>
+      <select name="status">
+        ${['', ...kind.statuses].map((s) => `<option ${s === e?.status ? 'selected' : ''}>${esc(s)}</option>`).join('')}
+      </select></label>` : ''}
+
+    <label class="field"><span>Details</span>
+      <textarea name="body" data-keep="eb" style="min-height:130px"
+        placeholder="${kind.id === 'quest' ? 'What needs doing, and what is the reward?'
+          : kind.id === 'npc' ? 'What do they look like? What do they want?'
+          : kind.id === 'shop' ? 'What kind of place is it?'
+          : 'Anything worth remembering.'}">${esc(e?.body || '')}</textarea></label>
+
+    ${kind.id === 'shop' ? `
+      <p class="tiny" style="margin-bottom:6px">STOCK — one per line, as "Item = price"</p>
+      <textarea name="stock" style="min-height:90px" placeholder="Potion of Healing = 50 gp
+Rope, 50 ft = 1 gp">${esc((e?.data?.stock || []).map((s) => `${s.name} = ${s.price}`).join('\n'))}</textarea>
+      <div style="height:12px"></div>` : ''}
+
+    ${isDM() ? `<label class="row" style="margin-bottom:12px">
+      <input type="checkbox" name="dmOnly" style="width:auto" ${e?.dmOnly ? 'checked' : ''} />
+      <span class="muted">DM only — hide from players</span></label>` : ''}
+
+    <div class="row">
+      <button class="btn" type="button" data-act="close-modal">Cancel</button>
+      <button class="btn primary grow" type="submit">Save</button>
+    </div>
+  </form>`;
+}
+
+on('pick-entry-image', async () => {
+  const image = await pickImage(520);
+  if (!image) return;
+  state.draftImage = image;
+  render();
+});
+
+on('save-entry', async (form) => {
+  const kind = form.dataset.kind;
+  const data = {};
+
+  if (kind === 'shop') {
+    // "Potion of Healing = 50 gp" per line
+    data.stock = val(form, 'stock').split('\n')
+      .map((line) => line.trim()).filter(Boolean)
+      .map((line) => {
+        const [name, price = ''] = line.split('=');
+        return { name: name.trim(), price: price.trim() };
+      });
+  }
+
+  const payload = {
+    kind,
+    title: val(form, 'title'),
+    subtitle: val(form, 'subtitle'),
+    body: val(form, 'body'),
+    status: val(form, 'status'),
+    data,
+    dmOnly: !!form.querySelector('[name="dmOnly"]')?.checked,
+  };
+  if (state.draftImage !== undefined) payload.image = state.draftImage;
+
+  if (form.dataset.id) await api('PATCH', `/api/entries/${form.dataset.id}`, payload);
+  else await api('POST', `/api/campaigns/${state.campaign.id}/entries`, payload);
+
+  state.draftImage = undefined;
+  state.modal = null;
+  render();
 });
 
 // ---------------------------------------------------------------- notes
@@ -1095,8 +1382,13 @@ on('kick', async (el) => {
 
 // ================================================================= modals
 
-on('modal', (el) => { state.modal = { name: el.dataset.name, id: el.dataset.id, i: el.dataset.i }; render(); });
-on('close-modal', () => { state.modal = null; render(); });
+on('modal', (el) => {
+  state.draftImage = undefined; // start each modal with a clean image draft
+  state.modal = { name: el.dataset.name, id: el.dataset.id, i: el.dataset.i };
+  render();
+});
+
+on('close-modal', () => { state.draftImage = undefined; state.modal = null; render(); });
 
 /** Built lazily — only the open modal's body is evaluated. */
 function modalBody(name) {
@@ -1108,6 +1400,8 @@ function modalBody(name) {
     case 'edit-note': return noteModal(state.notes.find((n) => n.id === state.modal.id));
     case 'add-enemy': return enemyModal();
     case 'new-attack': return attackModal();
+    case 'new-entry': return entryModal(null);
+    case 'edit-entry': return entryModal(state.entries.find((e) => e.id === state.modal.id));
     case 'conditions': return conditionsModal();
     case 'c-cond': return combatantConditionsModal();
     case 'coins': return coinsModal();
