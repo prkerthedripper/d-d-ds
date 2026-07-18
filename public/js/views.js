@@ -1,0 +1,1262 @@
+// Page rendering + user actions.
+import {
+  state, api, esc, mod, signed, avatar, hpBar, nameOf, ago, isDM, myChars,
+  toast, on, render, loadMe, openCampaign, refresh,
+} from './core.js';
+
+export const NAV = [
+  { id: 'home', label: 'Home', icon: '🏠' },
+  { id: 'characters', label: 'Characters', icon: '🛡️' },
+  { id: 'inventory', label: 'Inventory', icon: '🎒' },
+  { id: 'dice', label: 'Dice Roller', icon: '🎲' },
+  { id: 'combat', label: 'Combat', icon: '⚔️' },
+  { id: 'spells', label: 'Spells', icon: '✨' },
+  { id: 'notes', label: 'Notes', icon: '📝' },
+  { id: 'chat', label: 'Chat', icon: '💬' },
+  { id: 'settings', label: 'Settings', icon: '⚙️' },
+];
+
+const ABILITIES = [['str', 'STR'], ['dex', 'DEX'], ['con', 'CON'], ['int', 'INT'], ['wis', 'WIS'], ['cha', 'CHA']];
+const COINS = [['pp', 'Platinum'], ['gp', 'Gold'], ['ep', 'Electrum'], ['sp', 'Silver'], ['cp', 'Copper']];
+
+const selected = () => state.characters.find((c) => c.id === state.selectedCharId)
+  || myChars()[0] || state.characters[0] || null;
+
+const val = (form, name) => form.querySelector(`[name="${name}"]`)?.value ?? '';
+const num = (form, name) => Number(val(form, name)) || 0;
+
+// ================================================================= gate
+
+export function gateView() {
+  const login = state.authMode === 'login';
+  return `
+  <div class="gate">
+    <div class="gate-card">
+      <div class="brand">
+        <div class="brand-mark">🐉</div>
+        <div><div class="brand-name" style="color:var(--ink)">D&amp;D DS</div>
+        <div class="brand-sub">Dripper Studios</div></div>
+      </div>
+      <h1>${login ? 'Welcome back' : 'Create your account'}</h1>
+      <p class="muted" style="text-align:center;margin:6px 0 18px">
+        ${login ? 'Sign in to join your party.' : 'No email verification — just pick a password.'}
+      </p>
+      <form data-act="${login ? 'login' : 'register'}">
+        ${login ? '' : `<label class="field"><span>Display name</span>
+          <input name="username" data-keep="u" placeholder="Lyra" required /></label>`}
+        <label class="field"><span>Email</span>
+          <input name="email" data-keep="e" type="email" placeholder="you@example.com" required /></label>
+        <label class="field"><span>Password</span>
+          <input name="password" data-keep="p" type="password" placeholder="At least 6 characters" required /></label>
+        <button class="btn primary wide" type="submit">${login ? 'Sign in' : 'Create account'}</button>
+      </form>
+      <p class="muted" style="text-align:center;margin-top:14px">
+        ${login ? 'New here?' : 'Already have an account?'}
+        <a href="#" data-act="toggle-auth">${login ? 'Create an account' : 'Sign in'}</a>
+      </p>
+    </div>
+  </div>`;
+}
+
+on('toggle-auth', () => { state.authMode = state.authMode === 'login' ? 'register' : 'login'; render(); });
+
+on('login', async (form) => {
+  await api('POST', '/api/auth/login', { email: val(form, 'email'), password: val(form, 'password') });
+  await loadMe();
+  await autoOpen();
+  render();
+});
+
+on('register', async (form) => {
+  await api('POST', '/api/auth/register', {
+    username: val(form, 'username'), email: val(form, 'email'), password: val(form, 'password'),
+  });
+  await loadMe();
+  render();
+  toast(`Welcome, ${state.user.username}!`);
+});
+
+async function autoOpen() {
+  const last = localStorage.getItem('dndds-campaign');
+  const target = state.campaigns.find((c) => c.id === last) || state.campaigns[0];
+  if (target) await openCampaign(target.id);
+}
+
+// ================================================================= lobby
+
+export function lobbyView() {
+  return `
+  <div class="gate">
+    <div class="gate-card" style="max-width:520px">
+      <div class="brand">
+        <div class="brand-mark">🐉</div>
+        <div><div class="brand-name" style="color:var(--ink)">D&amp;D DS</div>
+        <div class="brand-sub">Dripper Studios</div></div>
+      </div>
+      <h1 style="text-align:left">Hey ${esc(state.user.username)}</h1>
+      <p class="muted" style="margin:6px 0 18px">Pick a campaign, or start one as the DM.</p>
+
+      ${state.invites.length ? `
+        <h3 style="font-size:14px;margin-bottom:8px">Invites</h3>
+        <div class="stack" style="margin-bottom:20px">
+          ${state.invites.map((i) => `
+            <div class="card spread">
+              <div>
+                <div style="font-weight:650">${esc(i.name)}</div>
+                <div class="tiny">Invited by ${esc(i.dmName)}</div>
+              </div>
+              <div class="row">
+                <button class="btn sm" data-act="invite-decline" data-id="${i.id}">Decline</button>
+                <button class="btn sm primary" data-act="invite-accept" data-id="${i.id}">Join</button>
+              </div>
+            </div>`).join('')}
+        </div>` : ''}
+
+      <div class="stack" style="margin-bottom:18px">
+        ${state.campaigns.length ? state.campaigns.map((c) => `
+          <button class="card spread" style="cursor:pointer;text-align:left;width:100%"
+                  data-act="open-campaign" data-id="${c.id}">
+            <div>
+              <div style="font-weight:650">${esc(c.name)}</div>
+              <div class="tiny">${c.role === 'dm' ? 'You are the DM' : 'Player'}</div>
+            </div>
+            <span class="tag">Open</span>
+          </button>`).join('')
+        : '<p class="muted">No campaigns yet. Ask your DM to invite this email, or create one below.</p>'}
+      </div>
+
+      <form data-act="create-campaign" class="card">
+        <h3>Start a campaign</h3>
+        <label class="field"><span>Campaign name</span>
+          <input name="name" data-keep="cn" placeholder="The Lost Mines" required /></label>
+        <button class="btn primary wide" type="submit">Create as DM</button>
+      </form>
+
+      <p style="text-align:center;margin-top:16px">
+        <a href="#" data-act="logout">Sign out</a>
+      </p>
+    </div>
+  </div>`;
+}
+
+on('open-campaign', (el) => openCampaign(el.dataset.id));
+
+on('create-campaign', async (form) => {
+  const { campaign } = await api('POST', '/api/campaigns', { name: val(form, 'name') });
+  await loadMe();
+  await openCampaign(campaign.id);
+  toast('Campaign created — invite your friends in Settings.');
+});
+
+on('invite-accept', async (el) => {
+  const { campaignId } = await api('POST', `/api/invites/${el.dataset.id}/accept`);
+  await loadMe();
+  await openCampaign(campaignId);
+});
+
+on('invite-decline', async (el) => {
+  await api('POST', `/api/invites/${el.dataset.id}/decline`);
+  await loadMe();
+  render();
+});
+
+on('logout', async () => {
+  await api('POST', '/api/auth/logout');
+  localStorage.removeItem('dndds-campaign');
+  location.reload();
+});
+
+// ================================================================= shell
+
+export function shellView() {
+  return `
+  <div class="app">
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="brand-mark">🐉</div>
+        <div><div class="brand-name">D&amp;D DS</div><div class="brand-sub">Dripper Studios</div></div>
+      </div>
+      <nav class="nav">
+        ${NAV.map((n) => `
+          <button class="${state.page === n.id ? 'active' : ''}" data-act="go" data-page="${n.id}">
+            <span class="icon">${n.icon}</span>${n.label}
+          </button>`).join('')}
+      </nav>
+      <div class="side-foot">
+        <div class="side-label">Current campaign</div>
+        <button class="side-campaign" data-act="switch-campaign">
+          <span>${esc(state.campaign.name)}</span><span>⌄</span>
+        </button>
+        <div class="row" style="margin-top:12px;padding:0 8px">
+          <button class="btn sm" data-act="theme">${state.theme === 'dark' ? '☀️' : '🌙'}</button>
+          <span class="tiny">${state.online.length} online</span>
+        </div>
+      </div>
+    </aside>
+
+    <div class="main">
+      ${topbarView()}
+      <div class="content">${pageView()}</div>
+    </div>
+
+    <nav class="mobile-bar">
+      ${NAV.map((n) => `
+        <button class="${state.page === n.id ? 'active' : ''}" data-act="go" data-page="${n.id}">
+          <span class="icon">${n.icon}</span>${n.label.split(' ')[0]}
+        </button>`).join('')}
+    </nav>
+  </div>
+  ${state.modal ? modalView() : ''}`;
+}
+
+on('go', (el) => { state.page = el.dataset.page; state.filter = ''; render(); });
+on('theme', () => {
+  state.theme = state.theme === 'dark' ? 'light' : 'dark';
+  localStorage.setItem('dndds-theme', state.theme);
+  render();
+});
+on('switch-campaign', () => { state.campaign = null; render(); });
+
+// ---------------------------------------------------------------- topbar
+
+function turnOrder() {
+  if (state.combat.active && state.combat.combatants.length) {
+    return state.combat.combatants.map((c) => ({ name: c.name, sub: c.type === 'enemy' ? 'Enemy' : c.sub || 'Ally' }));
+  }
+  return state.characters.map((c) => ({ name: c.name, sub: c.class || 'Adventurer', ownerId: c.ownerId }));
+}
+
+function topbarView() {
+  const list = turnOrder();
+  const idx = state.combat.active ? state.combat.turnIndex % Math.max(1, list.length) : -1;
+  const current = list[idx];
+
+  return `
+  <header class="topbar">
+    <div class="tt-label">Turn Tracker</div>
+    <div class="tt-row">
+      ${list.slice(0, 8).map((c, i) => `
+        <div class="tt-chip ${i === idx ? 'on' : ''}">
+          ${avatar(c.name, c.ownerId && state.online.includes(c.ownerId) ? 'on' : '')}
+          <div><div class="nm">${esc(c.name)}</div><div class="sub">${esc(c.sub)}</div></div>
+        </div>`).join('')
+      || '<span class="muted">No characters yet</span>'}
+    </div>
+    ${current ? `<div class="tt-turn">${esc(current.name)}’s Turn</div>` : ''}
+    ${state.combat.active && isDM()
+      ? '<button class="btn primary sm" data-act="next-turn">Next Player →</button>'
+      : ''}
+  </header>`;
+}
+
+// ================================================================= pages
+
+function pageView() {
+  switch (state.page) {
+    case 'home': return homeView();
+    case 'characters': return charactersView();
+    case 'inventory': return inventoryView();
+    case 'dice': return diceView();
+    case 'combat': return combatView();
+    case 'spells': return spellsView();
+    case 'notes': return notesView();
+    case 'chat': return chatView();
+    case 'settings': return settingsView();
+    default: return homeView();
+  }
+}
+
+// ---------------------------------------------------------------- home
+
+function homeView() {
+  const recent = state.rolls.slice(0, 5);
+  return `
+  <div class="hero">
+    <h1>Welcome back, ${esc(state.user.username)}!</h1>
+    <p>${esc(state.campaign.description || 'Everything you need for an epic adventure.')}</p>
+    <button class="btn" data-act="go" data-page="characters">View Party</button>
+  </div>
+
+  <div class="grid g3">
+    <div class="card">
+      <h3>Session Info</h3>
+      <div style="font-size:18px;font-weight:700">${esc(state.campaign.name)}</div>
+      <p class="muted" style="margin-top:4px">${esc(state.campaign.sessionTitle || 'Session 1')}</p>
+      <p class="tiny" style="margin-top:8px">DM: ${esc(nameOf(state.campaign.dmId))}</p>
+      <button class="btn sm wide" style="margin-top:12px" data-act="go" data-page="notes">Session Notes</button>
+    </div>
+
+    <div class="card">
+      <h3>Party</h3>
+      <div class="stack">
+        ${state.characters.length ? state.characters.map((c) => `
+          <div class="row" style="flex-wrap:nowrap">
+            ${avatar(c.name, state.online.includes(c.ownerId) ? 'on' : '')}
+            <div class="grow">
+              <div class="spread">
+                <span style="font-size:13.5px;font-weight:650">${esc(c.name)}</span>
+                <span class="tiny">${c.hp}/${c.maxHp}</span>
+              </div>
+              <div class="tiny">Level ${c.level} ${esc(c.class)}</div>
+              ${hpBar(c.hp, c.maxHp)}
+            </div>
+          </div>`).join('')
+        : '<p class="muted">No characters yet.</p>'}
+      </div>
+      <button class="btn sm wide" style="margin-top:12px" data-act="go" data-page="characters">View All Characters</button>
+    </div>
+
+    <div class="card">
+      <h3>Quick Access</h3>
+      <div class="stack">
+        ${[['dice', '🎲 Dice Roller'], ['combat', '⚔️ Initiative Tracker'], ['spells', '✨ Spells'], ['chat', '💬 Party Chat']]
+          .map(([p, t]) => `<button class="btn wide" data-act="go" data-page="${p}" style="justify-content:flex-start">${t}</button>`).join('')}
+      </div>
+    </div>
+  </div>
+
+  <div class="grid g2" style="margin-top:16px">
+    <div class="card">
+      <h3>Recent Rolls</h3>
+      ${recent.length ? recent.map((r) => `
+        <div class="roll-line">
+          <div class="roll-total">${r.total}</div>
+          <div class="grow">
+            <div style="font-size:13.5px">${esc(nameOf(r.userId))} ${r.label ? `— ${esc(r.label)}` : ''}</div>
+            <div class="tiny mono">${esc(r.formula)} → ${esc(r.detail.replace(/~~/g, ''))}</div>
+          </div>
+          <span class="tiny">${ago(r.createdAt)}</span>
+        </div>`).join('')
+      : '<p class="muted">No rolls yet — head to the Dice Roller.</p>'}
+    </div>
+
+    <div class="card">
+      <h3>Campaign Notes</h3>
+      ${state.notes.length ? state.notes.slice(0, 5).map((n) => `
+        <div class="roll-line">
+          <div class="grow"><div style="font-size:13.5px;font-weight:600">${esc(n.title)}</div>
+          <div class="tiny">${esc(n.body.slice(0, 70))}${n.body.length > 70 ? '…' : ''}</div></div>
+          ${n.dmOnly ? '<span class="tag red">DM</span>' : ''}
+        </div>`).join('')
+      : '<p class="muted">No notes yet.</p>'}
+      <button class="btn sm wide" style="margin-top:12px" data-act="go" data-page="notes">View All Notes</button>
+    </div>
+  </div>`;
+}
+
+// ---------------------------------------------------------------- characters
+
+function charactersView() {
+  const c = selected();
+  return `
+  <div class="page-head spread">
+    <div><h1>Characters</h1><p>The whole party, live.</p></div>
+    <button class="btn primary" data-act="modal" data-name="new-char">+ New Character</button>
+  </div>
+
+  <div class="grid g-side">
+    <div class="stack">
+      ${state.characters.map((ch) => `
+        <button class="card row" style="cursor:pointer;text-align:left;flex-wrap:nowrap;border-color:${ch.id === c?.id ? 'var(--accent)' : 'var(--line)'}"
+                data-act="select-char" data-id="${ch.id}">
+          ${avatar(ch.name, state.online.includes(ch.ownerId) ? 'on' : '')}
+          <div class="grow">
+            <div style="font-weight:650;font-size:14px">${esc(ch.name)}</div>
+            <div class="tiny">Lv ${ch.level} ${esc(ch.race)} ${esc(ch.class)}</div>
+            ${hpBar(ch.hp, ch.maxHp)}
+          </div>
+        </button>`).join('') || '<p class="muted">No characters yet.</p>'}
+    </div>
+    ${c ? sheetView(c) : '<div class="card empty"><div class="big">🛡️</div>Create a character to get started.</div>'}
+  </div>`;
+}
+
+function sheetView(c) {
+  const mine = c.ownerId === state.user.id || isDM();
+  const skills = state.srd.skills || {};
+  const totalWeight = c.items.reduce((sum, i) => sum + i.weight * i.qty, 0);
+
+  return `
+  <div class="stack">
+    <div class="card">
+      <div class="row" style="flex-wrap:nowrap;align-items:flex-start">
+        ${avatar(c.name, 'lg')}
+        <div class="grow">
+          <div class="spread">
+            <div>
+              <h2 style="font-size:21px">${esc(c.name)}</h2>
+              <p class="muted">Level ${c.level} ${esc(c.race)} ${esc(c.class)} · ${esc(nameOf(c.ownerId))}</p>
+            </div>
+            ${mine ? `<div class="row">
+              <button class="btn sm" data-act="modal" data-name="edit-char" data-id="${c.id}">Edit</button>
+              <button class="btn sm danger" data-act="delete-char" data-id="${c.id}">Delete</button>
+            </div>` : ''}
+          </div>
+
+          <div class="spread" style="margin-top:12px">
+            <strong style="font-size:19px">${c.hp}<span class="muted" style="font-size:14px"> / ${c.maxHp} HP</span>
+            ${c.tempHp ? `<span class="tag" style="margin-left:6px">+${c.tempHp} temp</span>` : ''}</strong>
+            ${mine ? `<div class="row">
+              ${[-5, -1, 1, 5].map((d) => `<button class="btn sm" data-act="hp" data-id="${c.id}" data-d="${d}">${signed(d)}</button>`).join('')}
+            </div>` : ''}
+          </div>
+          ${hpBar(c.hp, c.maxHp)}
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>Ability Scores</h3>
+      <div class="grid" style="grid-template-columns:repeat(6,1fr);gap:8px">
+        ${ABILITIES.map(([k, label]) => `
+          <button class="stat-box" data-act="roll-quick" data-formula="d20${signed(mod(c.stats[k]))}" data-label="${label} check">
+            <div class="k">${label}</div>
+            <div class="v">${signed(mod(c.stats[k]))}</div>
+            <div class="m">${c.stats[k] ?? 10}</div>
+          </button>`).join('')}
+      </div>
+      <div class="grid" style="grid-template-columns:repeat(4,1fr);gap:8px;margin-top:10px">
+        <div class="stat-box"><div class="k">AC</div><div class="v">${c.ac}</div></div>
+        <div class="stat-box"><div class="k">Init</div><div class="v">${signed(c.initBonus)}</div></div>
+        <div class="stat-box"><div class="k">Speed</div><div class="v">${c.speed}</div><div class="m">ft</div></div>
+        <div class="stat-box"><div class="k">Prof</div><div class="v">${signed(c.profBonus)}</div></div>
+      </div>
+      <p class="tiny" style="margin-top:8px">Tap an ability to roll a d20 check with it.</p>
+    </div>
+
+    <div class="card">
+      <div class="spread"><h3 style="margin:0">Conditions</h3>
+        ${mine ? '<button class="btn sm" data-act="modal" data-name="conditions">Manage</button>' : ''}</div>
+      <div class="row" style="margin-top:10px">
+        ${c.conditions.length ? c.conditions.map((n) => `<span class="tag red">${esc(n)}</span>`).join('')
+          : '<span class="muted">None — feeling great.</span>'}
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>Spell Slots</h3>
+      <div class="row">
+        ${Object.entries(c.slots || {}).map(([lvl, s]) => {
+          const slot = typeof s === 'object' ? s : { max: s || 0, used: 0 };
+          if (!slot.max) return '';
+          return `<div class="stat-box" style="min-width:64px">
+            <div class="k">Lv ${lvl}</div>
+            <div class="v">${slot.max - slot.used}<span class="m">/${slot.max}</span></div>
+            ${mine ? `<div class="row" style="justify-content:center;gap:4px;margin-top:4px">
+              <button class="btn sm" data-act="slot" data-id="${c.id}" data-lvl="${lvl}" data-d="1">−</button>
+              <button class="btn sm" data-act="slot" data-id="${c.id}" data-lvl="${lvl}" data-d="-1">+</button>
+            </div>` : ''}
+          </div>`;
+        }).join('') || '<span class="muted">No slots set. Use Edit to add them.</span>'}
+      </div>
+      ${mine ? '<button class="btn sm" style="margin-top:12px" data-act="long-rest" data-id="' + c.id + '">🌙 Long Rest (restore all)</button>' : ''}
+    </div>
+
+    <div class="card">
+      <h3>Skills</h3>
+      <div class="grid g2" style="gap:2px">
+        ${Object.entries(skills).map(([name, ability]) => {
+          const bonus = mod(c.stats[ability]);
+          return `<button class="spread" style="background:none;border:0;padding:6px 2px;cursor:pointer;text-align:left"
+            data-act="roll-quick" data-formula="d20${signed(bonus)}" data-label="${esc(name)}">
+            <span style="font-size:13.5px">${esc(name)} <span class="tiny">${ability.toUpperCase()}</span></span>
+            <span class="mono">${signed(bonus)}</span>
+          </button>`;
+        }).join('')}
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="spread"><h3 style="margin:0">Coins &amp; Load</h3>
+        <span class="tiny">${totalWeight.toFixed(1)} lbs carried</span></div>
+      <div class="grid" style="grid-template-columns:repeat(5,1fr);gap:8px;margin-top:10px">
+        ${COINS.map(([k, label]) => `
+          <div class="stat-box"><div class="k">${label.slice(0, 2)}</div>
+          <div class="v">${c.coins?.[k] ?? 0}</div></div>`).join('')}
+      </div>
+      ${mine ? '<button class="btn sm wide" style="margin-top:10px" data-act="modal" data-name="coins">Edit coins</button>' : ''}
+    </div>
+  </div>`;
+}
+
+on('select-char', (el) => { state.selectedCharId = el.dataset.id; render(); });
+
+on('hp', async (el) => {
+  const c = state.characters.find((x) => x.id === el.dataset.id);
+  const hp = Math.max(0, Math.min(c.maxHp, c.hp + Number(el.dataset.d)));
+  await api('PATCH', `/api/characters/${c.id}`, { hp });
+});
+
+on('slot', async (el) => {
+  const c = state.characters.find((x) => x.id === el.dataset.id);
+  const slots = { ...c.slots };
+  const lvl = el.dataset.lvl;
+  const s = typeof slots[lvl] === 'object' ? { ...slots[lvl] } : { max: slots[lvl] || 0, used: 0 };
+  s.used = Math.max(0, Math.min(s.max, s.used + Number(el.dataset.d)));
+  slots[lvl] = s;
+  await api('PATCH', `/api/characters/${c.id}`, { slots });
+});
+
+on('long-rest', async (el) => {
+  const c = state.characters.find((x) => x.id === el.dataset.id);
+  const slots = Object.fromEntries(Object.entries(c.slots || {}).map(([lvl, s]) => {
+    const max = typeof s === 'object' ? s.max : s || 0;
+    return [lvl, { max, used: 0 }];
+  }));
+  await api('PATCH', `/api/characters/${c.id}`, { slots, hp: c.maxHp, tempHp: 0, conditions: [] });
+  toast(`${c.name} takes a long rest.`);
+});
+
+on('delete-char', async (el) => {
+  if (!confirm('Delete this character for good?')) return;
+  await api('DELETE', `/api/characters/${el.dataset.id}`);
+  state.selectedCharId = null;
+});
+
+// ---------------------------------------------------------------- inventory
+
+function inventoryView() {
+  const c = selected();
+  if (!c) return '<div class="card empty"><div class="big">🎒</div>Make a character first.</div>';
+  const mine = c.ownerId === state.user.id || isDM();
+  const q = state.filter.toLowerCase();
+  const items = c.items.filter((i) => !q || i.name.toLowerCase().includes(q) || i.category.toLowerCase().includes(q));
+  const weight = c.items.reduce((s, i) => s + i.weight * i.qty, 0);
+
+  return `
+  <div class="page-head spread">
+    <div><h1>Inventory</h1><p>${esc(c.name)} · ${weight.toFixed(1)} lbs</p></div>
+    <div class="row">
+      <select data-change="pick-char" style="width:auto">
+        ${state.characters.map((ch) => `<option value="${ch.id}" ${ch.id === c.id ? 'selected' : ''}>${esc(ch.name)}</option>`).join('')}
+      </select>
+      ${mine ? '<button class="btn primary" data-act="modal" data-name="new-item">+ Add Item</button>' : ''}
+    </div>
+  </div>
+
+  <input placeholder="Search inventory…" data-live="filter" data-keep="inv-q" value="${esc(state.filter)}" style="margin-bottom:14px" />
+
+  <div class="card pad0">
+    <table class="responsive">
+      <thead><tr><th>Item</th><th>Details</th><th>Weight</th><th>Qty</th><th></th></tr></thead>
+      <tbody>
+        ${items.length ? items.map((i) => `
+          <tr>
+            <td data-l="Item"><div><strong>${esc(i.name)}</strong><div class="tiny">${esc(i.category)}</div></div></td>
+            <td data-l="Details" class="muted">${esc(i.details) || '—'}</td>
+            <td data-l="Weight">${i.weight} lb</td>
+            <td data-l="Qty">${i.qty}</td>
+            <td data-l="">${mine ? `<div class="row">
+              <button class="btn sm" data-act="item-qty" data-id="${i.id}" data-d="-1">−</button>
+              <button class="btn sm" data-act="item-qty" data-id="${i.id}" data-d="1">+</button>
+              <button class="btn sm danger" data-act="item-del" data-id="${i.id}">✕</button>
+            </div>` : ''}</td>
+          </tr>`).join('')
+        : '<tr><td colspan="5" class="empty">Nothing here yet.</td></tr>'}
+      </tbody>
+    </table>
+  </div>`;
+}
+
+on('filter', (el) => { state.filter = el.value; render(); });
+on('pick-char', (el) => { state.selectedCharId = el.value; render(); });
+
+on('item-qty', async (el) => {
+  const c = selected();
+  const item = c.items.find((i) => i.id === el.dataset.id);
+  const qty = item.qty + Number(el.dataset.d);
+  if (qty <= 0) return api('DELETE', `/api/items/${item.id}`);
+  await api('PATCH', `/api/items/${item.id}`, { qty });
+});
+
+on('item-del', async (el) => { await api('DELETE', `/api/items/${el.dataset.id}`); });
+
+// ---------------------------------------------------------------- dice
+
+const DICE = ['d4', 'd6', 'd8', 'd10', 'd12', 'd20', 'd100'];
+
+function diceView() {
+  const last = state.rolls[0];
+  const adv = state.rollMode || 'normal';
+  return `
+  <div class="page-head"><h1>Dice Roller</h1><p>Everyone in the campaign sees your rolls instantly.</p></div>
+
+  <div class="grid g2">
+    <div class="card" style="text-align:center">
+      <div class="die ${state.rolling ? 'rolling' : ''}">${last ? Math.abs(last.total) : '20'}</div>
+      ${last ? `
+        <p class="muted mono" style="margin-top:14px">${esc(last.detail.replace(/~~/g, ''))}</p>
+        <div style="font-size:44px;font-weight:800;line-height:1.1">${last.total}</div>
+        <p class="tiny">${esc(nameOf(last.userId))} · ${esc(last.formula)} · ${ago(last.createdAt)}</p>`
+      : '<p class="muted" style="margin-top:14px">Roll something.</p>'}
+    </div>
+
+    <div class="card">
+      <h3>Roll Settings</h3>
+      <div class="row" style="margin-bottom:14px">
+        ${['advantage', 'normal', 'disadvantage'].map((m) => `
+          <button class="pill ${adv === m ? 'on' : ''}" data-act="roll-mode" data-mode="${m}">
+            ${m[0].toUpperCase() + m.slice(1)}</button>`).join('')}
+      </div>
+
+      <form data-act="do-roll">
+        <label class="field"><span>Formula</span>
+          <input name="formula" data-keep="df" class="mono" value="${esc(state.formula || 'd20')}" data-live="formula-live" /></label>
+        <label class="field"><span>Label (optional)</span>
+          <input name="label" data-keep="dl" placeholder="Attack roll, Stealth check…" /></label>
+        <button class="btn primary wide" type="submit">🎲 Roll Dice</button>
+      </form>
+
+      <p class="tiny" style="margin:14px 0 6px">Quick dice</p>
+      <div class="row">
+        ${DICE.map((d) => `<button class="pill" data-act="set-formula" data-f="${d}">${d}</button>`).join('')}
+        <button class="pill" data-act="set-formula" data-f="4d6kh3">4d6 drop low</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-top:16px">
+    <h3>Party Roll Log</h3>
+    ${state.rolls.length ? state.rolls.map((r) => `
+      <div class="roll-line">
+        <div class="roll-total">${r.total}</div>
+        <div class="grow">
+          <div style="font-size:13.5px"><strong>${esc(nameOf(r.userId))}</strong>${r.label ? ` — ${esc(r.label)}` : ''}</div>
+          <div class="tiny mono">${esc(r.formula)} → ${esc(r.detail.replace(/~~/g, ''))}</div>
+        </div>
+        <span class="tiny">${ago(r.createdAt)}</span>
+      </div>`).join('')
+    : '<p class="muted">Nothing rolled yet.</p>'}
+  </div>`;
+}
+
+on('roll-mode', (el) => { state.rollMode = el.dataset.mode; render(); });
+on('set-formula', (el) => { state.formula = el.dataset.f; render(); });
+on('formula-live', (el) => { state.formula = el.value; });
+
+/** Advantage/disadvantage rewrites a leading d20 into 2d20kh1 / 2d20kl1. */
+function applyMode(formula) {
+  const mode = state.rollMode || 'normal';
+  if (mode === 'normal') return formula;
+  const keep = mode === 'advantage' ? 'kh1' : 'kl1';
+  return formula.replace(/^\s*(\d*)d20/i, `2d20${keep}`);
+}
+
+async function sendRoll(formula, label) {
+  state.rolling = true;
+  render();
+  try {
+    await api('POST', `/api/campaigns/${state.campaign.id}/rolls`, { formula: applyMode(formula), label });
+  } finally {
+    setTimeout(() => { state.rolling = false; render(); }, 450);
+  }
+}
+
+on('do-roll', (form) => sendRoll(val(form, 'formula'), val(form, 'label')));
+on('roll-quick', (el) => sendRoll(el.dataset.formula, el.dataset.label));
+
+// ---------------------------------------------------------------- combat
+
+function combatView() {
+  const { active, round, combatants, turnIndex, name } = state.combat;
+  const dm = isDM();
+
+  if (!active && !combatants.length) {
+    return `
+    <div class="page-head"><h1>Combat</h1><p>Initiative order, HP and conditions — synced to everyone.</p></div>
+    <div class="card empty">
+      <div class="big">⚔️</div>
+      <p>No encounter running.</p>
+      ${dm ? '<button class="btn primary" style="margin-top:12px" data-act="start-combat">Start an Encounter</button>'
+           : '<p class="tiny">Your DM starts the encounter.</p>'}
+    </div>`;
+  }
+
+  const active_ = combatants[turnIndex % Math.max(1, combatants.length)];
+  return `
+  <div class="page-head spread">
+    <div><h1>${esc(name)}</h1><p>Round ${round}${active_ ? ` · ${esc(active_.name)}’s turn` : ''}</p></div>
+    ${dm ? `<div class="row">
+      <button class="btn" data-act="modal" data-name="add-enemy">+ Enemy</button>
+      <button class="btn" data-act="add-party">+ Party</button>
+      <button class="btn" data-act="roll-initiative">🎲 Roll Initiative</button>
+      <button class="btn primary" data-act="next-turn">Next Turn →</button>
+      <button class="btn danger" data-act="end-combat">End</button>
+    </div>` : ''}
+  </div>
+
+  <div class="grid g2">
+    <div class="card">
+      <h3>Initiative Order</h3>
+      <div>
+        ${combatants.length ? combatants.map((c, i) => `
+          <div class="init-row ${i === turnIndex ? 'turn' : ''} ${c.hp <= 0 ? 'dead' : ''}">
+            <span class="n">${i + 1}</span>
+            <span class="mono" style="width:26px;font-weight:700">${c.init ?? '—'}</span>
+            ${avatar(c.name)}
+            <div class="grow">
+              <div class="spread">
+                <span style="font-weight:650;font-size:14px">${esc(c.name)}</span>
+                <span class="tiny">${c.hp}/${c.maxHp} HP · AC ${c.ac}</span>
+              </div>
+              ${hpBar(c.hp, c.maxHp)}
+              ${(c.conditions || []).length ? `<div class="row" style="margin-top:5px">
+                ${c.conditions.map((n) => `<span class="tag red">${esc(n)}</span>`).join('')}</div>` : ''}
+            </div>
+            ${dm ? `<div class="row" style="flex-wrap:nowrap">
+              ${[-5, -1, 1, 5].map((d) => `<button class="btn sm" data-act="c-hp" data-i="${i}" data-d="${d}">${signed(d)}</button>`).join('')}
+              <button class="btn sm" data-act="modal" data-name="c-cond" data-i="${i}">🩸</button>
+              <button class="btn sm danger" data-act="c-del" data-i="${i}">✕</button>
+            </div>` : ''}
+          </div>`).join('')
+        : '<p class="muted">Add combatants to begin.</p>'}
+      </div>
+    </div>
+
+    <div class="card" style="display:flex;flex-direction:column;max-height:70dvh">
+      <h3>Combat Log &amp; Chat</h3>
+      ${chatBody()}
+    </div>
+  </div>`;
+}
+
+const saveCombat = (patch) => api('PUT', `/api/campaigns/${state.campaign.id}/combat`, { ...state.combat, ...patch });
+
+on('start-combat', () => saveCombat({ active: true, round: 1, turnIndex: 0, combatants: [] }));
+on('end-combat', () => saveCombat({ active: false, combatants: [], round: 1, turnIndex: 0 }));
+
+on('add-party', () => saveCombat({
+  active: true,
+  combatants: [
+    ...state.combat.combatants,
+    ...state.characters
+      .filter((c) => !state.combat.combatants.some((x) => x.charId === c.id))
+      .map((c) => ({
+        id: crypto.randomUUID(), charId: c.id, name: c.name, sub: c.class, type: 'pc',
+        init: null, hp: c.hp, maxHp: c.maxHp, ac: c.ac, initBonus: c.initBonus, conditions: c.conditions || [],
+      })),
+  ],
+}));
+
+on('roll-initiative', () => {
+  const combatants = state.combat.combatants
+    .map((c) => ({ ...c, init: c.init ?? (1 + Math.floor(Math.random() * 20) + (c.initBonus || 0)) }))
+    .sort((a, b) => b.init - a.init);
+  return saveCombat({ combatants, turnIndex: 0, active: true });
+});
+
+on('next-turn', () => {
+  const n = state.combat.combatants.length;
+  if (!n) return;
+  const next = state.combat.turnIndex + 1;
+  return saveCombat({
+    turnIndex: next % n,
+    round: next >= n ? state.combat.round + 1 : state.combat.round,
+  });
+});
+
+on('c-hp', (el) => {
+  const combatants = state.combat.combatants.map((c, i) => (
+    i === Number(el.dataset.i)
+      ? { ...c, hp: Math.max(0, Math.min(c.maxHp, c.hp + Number(el.dataset.d))) }
+      : c
+  ));
+  const changed = combatants[Number(el.dataset.i)];
+  if (changed.charId) api('PATCH', `/api/characters/${changed.charId}`, { hp: changed.hp }).catch(() => {});
+  return saveCombat({ combatants });
+});
+
+on('c-del', (el) => saveCombat({
+  combatants: state.combat.combatants.filter((_, i) => i !== Number(el.dataset.i)),
+}));
+
+// ---------------------------------------------------------------- spells
+
+function spellsView() {
+  const c = selected();
+  const q = state.filter.toLowerCase();
+  const lvl = state.spellLevel ?? 'all';
+  const list = state.srd.spells.filter((s) => {
+    if (lvl !== 'all' && s.level !== Number(lvl)) return false;
+    if (state.spellsMine && !(c?.spells || []).includes(s.name)) return false;
+    return !q || s.name.toLowerCase().includes(q) || s.classes.some((k) => k.toLowerCase().includes(q));
+  });
+
+  return `
+  <div class="page-head spread">
+    <div><h1>Spells</h1><p>5th Edition reference. Tap ★ to add a spell to ${esc(c?.name || 'your character')}.</p></div>
+  </div>
+
+  <div class="row" style="margin-bottom:12px">
+    <input placeholder="Search spells or class…" data-live="filter" data-keep="sp-q" value="${esc(state.filter)}" class="grow" />
+    <button class="pill ${state.spellsMine ? 'on' : ''}" data-act="toggle-mine">★ Known</button>
+  </div>
+
+  <div class="row" style="margin-bottom:14px">
+    ${['all', 0, 1, 2, 3].map((l) => `
+      <button class="pill ${String(lvl) === String(l) ? 'on' : ''}" data-act="spell-level" data-l="${l}">
+        ${l === 'all' ? 'All' : l === 0 ? 'Cantrips' : `Level ${l}`}</button>`).join('')}
+  </div>
+
+  <div class="stack">
+    ${list.map((s) => {
+      const known = (c?.spells || []).includes(s.name);
+      return `
+      <div class="card">
+        <div class="spread">
+          <div class="grow">
+            <div class="row">
+              <strong style="font-size:15px">${esc(s.name)}</strong>
+              <span class="tag">${s.level === 0 ? 'Cantrip' : `Level ${s.level}`}</span>
+              <span class="tag grey">${esc(s.school)}</span>
+            </div>
+            <p class="tiny" style="margin-top:5px">
+              ${esc(s.time)} · ${esc(s.range)} · ${esc(s.comp)} · ${esc(s.duration)} · ${esc(s.classes.join(', '))}
+            </p>
+            <p class="muted" style="margin-top:7px">${esc(s.desc)}</p>
+          </div>
+          ${c ? `<button class="btn sm ${known ? 'primary' : ''}" data-act="know-spell" data-name="${esc(s.name)}">
+            ${known ? '★' : '☆'}</button>` : ''}
+        </div>
+      </div>`;
+    }).join('') || '<div class="card empty">No spells match.</div>'}
+  </div>`;
+}
+
+on('spell-level', (el) => { state.spellLevel = el.dataset.l; render(); });
+on('toggle-mine', () => { state.spellsMine = !state.spellsMine; render(); });
+
+on('know-spell', async (el) => {
+  const c = selected();
+  if (!c) return;
+  const name = el.dataset.name;
+  const spells = c.spells.includes(name) ? c.spells.filter((s) => s !== name) : [...c.spells, name];
+  await api('PATCH', `/api/characters/${c.id}`, { spells });
+});
+
+// ---------------------------------------------------------------- notes
+
+function notesView() {
+  return `
+  <div class="page-head spread">
+    <div><h1>Notes</h1><p>Shared with the party. DM notes stay hidden from players.</p></div>
+    <button class="btn primary" data-act="modal" data-name="new-note">+ New Note</button>
+  </div>
+
+  <div class="stack">
+    ${state.notes.length ? state.notes.map((n) => `
+      <div class="card">
+        <div class="spread">
+          <div class="row">
+            <strong style="font-size:15px">${esc(n.title)}</strong>
+            ${n.dmOnly ? '<span class="tag red">DM only</span>' : ''}
+          </div>
+          <div class="row">
+            <span class="tiny">${esc(nameOf(n.authorId))} · ${ago(n.updatedAt)}</span>
+            ${n.authorId === state.user.id || isDM() ? `
+              <button class="btn sm" data-act="modal" data-name="edit-note" data-id="${n.id}">Edit</button>
+              <button class="btn sm danger" data-act="note-del" data-id="${n.id}">✕</button>` : ''}
+          </div>
+        </div>
+        <p class="muted" style="margin-top:9px;white-space:pre-wrap">${esc(n.body)}</p>
+      </div>`).join('')
+    : '<div class="card empty"><div class="big">📝</div>No notes yet.</div>'}
+  </div>`;
+}
+
+on('note-del', async (el) => {
+  if (!confirm('Delete this note?')) return;
+  await api('DELETE', `/api/notes/${el.dataset.id}`);
+});
+
+// ---------------------------------------------------------------- chat
+
+function chatBody() {
+  return `
+  <div class="chat-log" id="chatlog">
+    ${state.messages.map((m) => `
+      <div class="msg">
+        <div class="who">${esc(nameOf(m.userId))} <span class="tiny">${ago(m.createdAt)}</span></div>
+        <div class="body">${esc(m.body)}</div>
+      </div>`).join('') || '<p class="muted">No messages yet.</p>'}
+  </div>
+  <form data-act="send-msg" class="row" style="margin-top:12px;flex-wrap:nowrap">
+    <input name="body" data-keep="chat" class="grow" placeholder="Say something…" autocomplete="off" />
+    <button class="btn primary" type="submit">Send</button>
+  </form>`;
+}
+
+function chatView() {
+  return `
+  <div class="page-head"><h1>Party Chat</h1><p>Everyone in the campaign, live.</p></div>
+  <div class="card" style="display:flex;flex-direction:column;height:70dvh">${chatBody()}</div>`;
+}
+
+on('send-msg', async (form) => {
+  const body = val(form, 'body').trim();
+  if (!body) return;
+  form.reset();
+  await api('POST', `/api/campaigns/${state.campaign.id}/messages`, { body });
+});
+
+// ---------------------------------------------------------------- settings
+
+function settingsView() {
+  const dm = isDM();
+  return `
+  <div class="page-head"><h1>Settings</h1><p>Campaign, party and account.</p></div>
+
+  <div class="grid g2">
+    <div class="card">
+      <h3>Campaign</h3>
+      ${dm ? `
+        <form data-act="save-campaign">
+          <label class="field"><span>Name</span>
+            <input name="name" data-keep="c-n" value="${esc(state.campaign.name)}" /></label>
+          <label class="field"><span>Current session</span>
+            <input name="sessionTitle" data-keep="c-s" value="${esc(state.campaign.sessionTitle || '')}" placeholder="Session 4: Into the Depths" /></label>
+          <label class="field"><span>Description</span>
+            <textarea name="description" data-keep="c-d">${esc(state.campaign.description)}</textarea></label>
+          <button class="btn primary" type="submit">Save</button>
+        </form>`
+      : `<p class="muted">${esc(state.campaign.name)}</p>
+         <p class="tiny" style="margin-top:6px">Only the DM can change campaign settings.</p>`}
+    </div>
+
+    <div class="card">
+      <h3>Party (${state.members.length})</h3>
+      <div class="stack divide">
+        ${state.members.map((m) => `
+          <div class="spread">
+            <div class="row">
+              ${avatar(m.username, state.online.includes(m.id) ? 'on' : '')}
+              <div>
+                <div style="font-weight:650;font-size:14px">${esc(m.username)}</div>
+                <div class="tiny">${esc(m.email)}</div>
+              </div>
+            </div>
+            <div class="row">
+              <span class="tag ${m.role === 'dm' ? '' : 'grey'}">${m.role === 'dm' ? 'DM' : 'Player'}</span>
+              ${dm && m.id !== state.user.id
+                ? `<button class="btn sm danger" data-act="kick" data-id="${m.id}">Remove</button>` : ''}
+            </div>
+          </div>`).join('')}
+      </div>
+
+      ${dm ? `
+        <h3 style="margin-top:18px">Invite by email</h3>
+        <form data-act="invite" class="row" style="flex-wrap:nowrap">
+          <input name="email" data-keep="inv" type="email" class="grow" placeholder="friend@example.com" required />
+          <button class="btn primary" type="submit">Invite</button>
+        </form>
+        <p class="tiny" style="margin-top:8px">
+          They sign up with that email and the invite is waiting for them.
+        </p>
+        ${state.campaignInvites.length ? `<div class="stack divide" style="margin-top:12px">
+          ${state.campaignInvites.map((i) => `<div class="spread">
+            <span class="muted">${esc(i.email)}</span>
+            <span class="tag ${i.status === 'pending' ? '' : 'grey'}">${esc(i.status)}</span>
+          </div>`).join('')}</div>` : ''}` : ''}
+    </div>
+  </div>
+
+  <div class="card" style="margin-top:16px">
+    <h3>Account</h3>
+    <p class="muted">${esc(state.user.username)} · ${esc(state.user.email)}</p>
+    <div class="row" style="margin-top:12px">
+      <button class="btn" data-act="theme">${state.theme === 'dark' ? '☀️ Light mode' : '🌙 Dark mode'}</button>
+      <button class="btn" data-act="switch-campaign">Switch campaign</button>
+      <button class="btn danger" data-act="logout">Sign out</button>
+    </div>
+  </div>`;
+}
+
+on('save-campaign', async (form) => {
+  await api('PATCH', `/api/campaigns/${state.campaign.id}`, {
+    name: val(form, 'name'),
+    sessionTitle: val(form, 'sessionTitle'),
+    description: val(form, 'description'),
+  });
+  toast('Campaign saved');
+});
+
+on('invite', async (form) => {
+  await api('POST', `/api/campaigns/${state.campaign.id}/invites`, { email: val(form, 'email') });
+  form.reset();
+  toast('Invite sent — they will see it when they sign in.');
+});
+
+on('kick', async (el) => {
+  if (!confirm('Remove this player from the campaign?')) return;
+  await api('DELETE', `/api/campaigns/${state.campaign.id}/members/${el.dataset.id}`);
+});
+
+// ================================================================= modals
+
+on('modal', (el) => { state.modal = { name: el.dataset.name, id: el.dataset.id, i: el.dataset.i }; render(); });
+on('close-modal', () => { state.modal = null; render(); });
+
+/** Built lazily — only the open modal's body is evaluated. */
+function modalBody(name) {
+  switch (name) {
+    case 'new-char': return charFormModal(null);
+    case 'edit-char': return charFormModal(state.characters.find((c) => c.id === state.modal.id));
+    case 'new-item': return itemModal();
+    case 'new-note': return noteModal(null);
+    case 'edit-note': return noteModal(state.notes.find((n) => n.id === state.modal.id));
+    case 'add-enemy': return enemyModal();
+    case 'conditions': return conditionsModal();
+    case 'c-cond': return combatantConditionsModal();
+    case 'coins': return coinsModal();
+    default: return '';
+  }
+}
+
+function modalView() {
+  return `<div class="modal-bg" data-act="close-modal">
+    <div class="modal" onclick="event.stopPropagation()">${modalBody(state.modal.name)}</div>
+  </div>`;
+}
+
+function charFormModal(c) {
+  const s = c?.stats || { str: 10, dex: 10, con: 10, int: 10, wis: 10, cha: 10 };
+  const slotMax = (lvl) => {
+    const v = c?.slots?.[lvl];
+    return typeof v === 'object' ? v.max : v || 0;
+  };
+  return `
+  <h2>${c ? 'Edit' : 'New'} Character</h2>
+  <form data-act="save-char" data-id="${c?.id || ''}">
+    <label class="field"><span>Name</span><input name="name" data-keep="n" value="${esc(c?.name || '')}" required /></label>
+    <div class="row">
+      <label class="field grow"><span>Race</span>
+        <select name="race">${['', ...state.srd.races].map((r) => `<option ${r === c?.race ? 'selected' : ''}>${esc(r)}</option>`).join('')}</select></label>
+      <label class="field grow"><span>Class</span>
+        <select name="class">${['', ...state.srd.classes].map((k) => `<option ${k === c?.class ? 'selected' : ''}>${esc(k)}</option>`).join('')}</select></label>
+    </div>
+    <div class="row">
+      <label class="field grow"><span>Level</span><input name="level" type="number" min="1" max="20" value="${c?.level || 1}" /></label>
+      <label class="field grow"><span>Max HP</span><input name="maxHp" type="number" min="1" value="${c?.maxHp || 10}" /></label>
+      <label class="field grow"><span>AC</span><input name="ac" type="number" min="1" value="${c?.ac || 10}" /></label>
+    </div>
+    <div class="row">
+      <label class="field grow"><span>Speed</span><input name="speed" type="number" value="${c?.speed ?? 30}" /></label>
+      <label class="field grow"><span>Init bonus</span><input name="initBonus" type="number" value="${c?.initBonus ?? 0}" /></label>
+      <label class="field grow"><span>Prof bonus</span><input name="profBonus" type="number" value="${c?.profBonus ?? 2}" /></label>
+    </div>
+
+    <p class="tiny" style="margin-bottom:6px">ABILITY SCORES</p>
+    <div class="row">
+      ${ABILITIES.map(([k, label]) => `
+        <label class="field" style="flex:1;min-width:60px"><span>${label}</span>
+          <input name="${k}" type="number" min="1" max="30" value="${s[k] ?? 10}" /></label>`).join('')}
+    </div>
+
+    <p class="tiny" style="margin-bottom:6px">SPELL SLOTS (max per level — leave 0 if you have none)</p>
+    <div class="row">
+      ${[1, 2, 3, 4, 5].map((l) => `
+        <label class="field" style="flex:1;min-width:56px"><span>Lv ${l}</span>
+          <input name="slot${l}" type="number" min="0" max="9" value="${slotMax(l)}" /></label>`).join('')}
+    </div>
+
+    <div class="row" style="margin-top:6px">
+      <button class="btn" type="button" data-act="close-modal">Cancel</button>
+      <button class="btn primary grow" type="submit">${c ? 'Save' : 'Create'}</button>
+    </div>
+  </form>`;
+}
+
+on('save-char', async (form) => {
+  const stats = Object.fromEntries(ABILITIES.map(([k]) => [k, num(form, k)]));
+  const slots = {};
+  for (let l = 1; l <= 9; l++) {
+    const max = l <= 5 ? num(form, `slot${l}`) : 0;
+    const prev = state.characters.find((c) => c.id === form.dataset.id)?.slots?.[l];
+    const used = typeof prev === 'object' ? Math.min(prev.used, max) : 0;
+    slots[l] = { max, used };
+  }
+  const payload = {
+    name: val(form, 'name'), race: val(form, 'race'), class: val(form, 'class'),
+    level: num(form, 'level'), maxHp: num(form, 'maxHp'), ac: num(form, 'ac'),
+    speed: num(form, 'speed'), initBonus: num(form, 'initBonus'), profBonus: num(form, 'profBonus'),
+    stats, slots,
+  };
+
+  if (form.dataset.id) {
+    await api('PATCH', `/api/characters/${form.dataset.id}`, payload);
+  } else {
+    const { id } = await api('POST', `/api/campaigns/${state.campaign.id}/characters`, payload);
+    state.selectedCharId = id;
+  }
+  state.modal = null;
+  render();
+});
+
+function itemModal() {
+  return `
+  <h2>Add Item</h2>
+  <form data-act="save-item">
+    <label class="field"><span>Name</span><input name="name" data-keep="i" placeholder="Longbow" required /></label>
+    <label class="field"><span>Category</span>
+      <select name="category">${['Weapon', 'Armor', 'Potion', 'Gear', 'Quest Item', 'Ammunition', 'Other']
+        .map((k) => `<option>${k}</option>`).join('')}</select></label>
+    <label class="field"><span>Details</span><input name="details" placeholder="1d8 piercing, range 150/600 ft" /></label>
+    <div class="row">
+      <label class="field grow"><span>Weight (lbs)</span><input name="weight" type="number" step="0.1" value="0" /></label>
+      <label class="field grow"><span>Quantity</span><input name="qty" type="number" min="1" value="1" /></label>
+    </div>
+    <div class="row">
+      <button class="btn" type="button" data-act="close-modal">Cancel</button>
+      <button class="btn primary grow" type="submit">Add</button>
+    </div>
+  </form>`;
+}
+
+on('save-item', async (form) => {
+  const c = selected();
+  await api('POST', `/api/characters/${c.id}/items`, {
+    name: val(form, 'name'), category: val(form, 'category'), details: val(form, 'details'),
+    weight: num(form, 'weight'), qty: num(form, 'qty'),
+  });
+  state.modal = null;
+  render();
+});
+
+function noteModal(n) {
+  return `
+  <h2>${n ? 'Edit' : 'New'} Note</h2>
+  <form data-act="save-note" data-id="${n?.id || ''}">
+    <label class="field"><span>Title</span><input name="title" data-keep="nt" value="${esc(n?.title || '')}" required /></label>
+    <label class="field"><span>Body</span><textarea name="body" data-keep="nb" style="min-height:150px">${esc(n?.body || '')}</textarea></label>
+    ${isDM() ? `<label class="row" style="margin-bottom:12px">
+      <input type="checkbox" name="dmOnly" style="width:auto" ${n?.dmOnly ? 'checked' : ''} />
+      <span class="muted">DM only — hide from players</span></label>` : ''}
+    <div class="row">
+      <button class="btn" type="button" data-act="close-modal">Cancel</button>
+      <button class="btn primary grow" type="submit">Save</button>
+    </div>
+  </form>`;
+}
+
+on('save-note', async (form) => {
+  const payload = {
+    title: val(form, 'title'),
+    body: val(form, 'body'),
+    dmOnly: !!form.querySelector('[name="dmOnly"]')?.checked,
+  };
+  if (form.dataset.id) await api('PATCH', `/api/notes/${form.dataset.id}`, payload);
+  else await api('POST', `/api/campaigns/${state.campaign.id}/notes`, payload);
+  state.modal = null;
+  render();
+});
+
+function enemyModal() {
+  return `
+  <h2>Add Enemy</h2>
+  <form data-act="save-enemy">
+    <label class="field"><span>Name</span><input name="name" data-keep="en" placeholder="Goblin Scout" required /></label>
+    <div class="row">
+      <label class="field grow"><span>HP</span><input name="hp" type="number" min="1" value="9" /></label>
+      <label class="field grow"><span>AC</span><input name="ac" type="number" min="1" value="13" /></label>
+      <label class="field grow"><span>Init bonus</span><input name="initBonus" type="number" value="2" /></label>
+      <label class="field grow"><span>How many</span><input name="count" type="number" min="1" max="12" value="1" /></label>
+    </div>
+    <div class="row">
+      <button class="btn" type="button" data-act="close-modal">Cancel</button>
+      <button class="btn primary grow" type="submit">Add</button>
+    </div>
+  </form>`;
+}
+
+on('save-enemy', async (form) => {
+  const count = Math.max(1, num(form, 'count'));
+  const hp = num(form, 'hp');
+  const base = val(form, 'name');
+  const added = Array.from({ length: count }, (_, i) => ({
+    id: crypto.randomUUID(),
+    name: count > 1 ? `${base} ${i + 1}` : base,
+    sub: 'Enemy', type: 'enemy', init: null,
+    hp, maxHp: hp, ac: num(form, 'ac'), initBonus: num(form, 'initBonus'), conditions: [],
+  }));
+  await saveCombat({ active: true, combatants: [...state.combat.combatants, ...added] });
+  state.modal = null;
+  render();
+});
+
+function conditionsModal() {
+  const c = selected();
+  if (!c) return '<p class="muted">Create a character first.</p>';
+  return `
+  <h2>Conditions — ${esc(c.name)}</h2>
+  <div class="stack">
+    ${state.srd.conditions.map((cond) => {
+      const has = c.conditions.includes(cond.name);
+      return `<button class="card" style="text-align:left;cursor:pointer;border-color:${has ? 'var(--red)' : 'var(--line)'}"
+        data-act="toggle-cond" data-name="${esc(cond.name)}">
+        <div class="spread"><strong style="font-size:14px">${esc(cond.name)}</strong>${has ? '<span class="tag red">Active</span>' : ''}</div>
+        <p class="tiny" style="margin-top:4px">${esc(cond.desc)}</p>
+      </button>`;
+    }).join('')}
+  </div>
+  <button class="btn wide" style="margin-top:14px" data-act="close-modal">Done</button>`;
+}
+
+on('toggle-cond', async (el) => {
+  const c = selected();
+  const name = el.dataset.name;
+  const conditions = c.conditions.includes(name) ? c.conditions.filter((x) => x !== name) : [...c.conditions, name];
+  await api('PATCH', `/api/characters/${c.id}`, { conditions });
+});
+
+function combatantConditionsModal() {
+  const i = Number(state.modal.i);
+  const c = state.combat.combatants[i];
+  if (!c) return '<p class="muted">Gone.</p>';
+  return `
+  <h2>Conditions — ${esc(c.name)}</h2>
+  <div class="row">
+    ${state.srd.conditions.map((cond) => `
+      <button class="pill ${(c.conditions || []).includes(cond.name) ? 'on' : ''}"
+        data-act="toggle-c-cond" data-i="${i}" data-name="${esc(cond.name)}">${esc(cond.name)}</button>`).join('')}
+  </div>
+  <button class="btn wide" style="margin-top:14px" data-act="close-modal">Done</button>`;
+}
+
+on('toggle-c-cond', (el) => {
+  const i = Number(el.dataset.i);
+  const name = el.dataset.name;
+  const combatants = state.combat.combatants.map((c, idx) => {
+    if (idx !== i) return c;
+    const list = c.conditions || [];
+    return { ...c, conditions: list.includes(name) ? list.filter((x) => x !== name) : [...list, name] };
+  });
+  return saveCombat({ combatants });
+});
+
+function coinsModal() {
+  const c = selected();
+  if (!c) return '<p class="muted">Create a character first.</p>';
+  return `
+  <h2>Coins — ${esc(c.name)}</h2>
+  <form data-act="save-coins">
+    <div class="row">
+      ${COINS.map(([k, label]) => `
+        <label class="field" style="flex:1;min-width:70px"><span>${label}</span>
+          <input name="${k}" type="number" min="0" value="${c.coins?.[k] ?? 0}" /></label>`).join('')}
+    </div>
+    <div class="row">
+      <button class="btn" type="button" data-act="close-modal">Cancel</button>
+      <button class="btn primary grow" type="submit">Save</button>
+    </div>
+  </form>`;
+}
+
+on('save-coins', async (form) => {
+  const c = selected();
+  const coins = Object.fromEntries(COINS.map(([k]) => [k, num(form, k)]));
+  await api('PATCH', `/api/characters/${c.id}`, { coins });
+  state.modal = null;
+  render();
+});
+
+export { autoOpen };

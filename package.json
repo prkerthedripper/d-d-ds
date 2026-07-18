@@ -1,0 +1,22 @@
+{
+  "name": "dnd-ds",
+  "version": "1.0.0",
+  "description": "D&D DS - Dungeons and Dragons Dripper Studios campaign companion",
+  "type": "module",
+  "main": "server/index.js",
+  "scripts": {
+    "start": "node server/index.js",
+    "dev": "node --watch server/index.js"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "bcryptjs": "^3.0.2",
+    "cookie": "^1.0.2",
+    "express": "^4.21.2",
+    "jsonwebtoken": "^9.0.2",
+    "pg": "^8.13.1",
+    "socket.io": "^4.8.1"
+  }
+}
