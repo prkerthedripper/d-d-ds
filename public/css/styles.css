@@ -37,6 +37,12 @@
 
 * { box-sizing: border-box; }
 
+/* Inline vector icons — inherit colour and sit on the text baseline. */
+.ic { display: inline-block; vertical-align: -0.18em; flex-shrink: 0; }
+.nav .icon, .mobile-bar .icon { display: inline-flex; }
+.brand-mark .ic { color: #fff; vertical-align: 0; }
+.empty .big { display: flex; justify-content: center; color: var(--ink-3); }
+
 html, body {
   margin: 0;
   height: 100%;
@@ -176,6 +182,9 @@ p { margin: 0; }
 }
 .hero h1 { font-size: 30px; font-weight: 780; }
 .hero p { opacity: .9; margin: 6px 0 16px; }
+/* The hero sets white text, which would make a default button white-on-white. */
+.hero .btn { color: var(--accent); border-color: transparent; }
+.hero .btn:hover { color: var(--accent); filter: brightness(.96); }
 
 /* ---------------------------------------------------------------- bits */
 
@@ -276,6 +285,12 @@ td { padding: 11px 14px; border-top: 1px solid var(--line); font-size: 14px; ver
 [data-theme="dark"] .init-row.turn { background: #33290f; }
 .init-row .n { width: 18px; color: var(--ink-3); font-size: 13px; }
 .init-row.dead { opacity: .45; }
+.init-row.targetable {
+  cursor: crosshair;
+  border-color: var(--accent);
+  border-style: dashed;
+}
+.init-row.targetable:hover { background: var(--accent-soft); }
 
 .chat-log { display: flex; flex-direction: column; gap: 10px; overflow-y: auto; flex: 1; }
 .msg .who { font-size: 12px; font-weight: 700; }

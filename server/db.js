@@ -141,6 +141,19 @@ const SCHEMA = [
     portrait TEXT DEFAULT '',
     created_at BIGINT NOT NULL
   )`,
+  `CREATE TABLE IF NOT EXISTS enemy_presets (
+    id TEXT PRIMARY KEY,
+    campaign_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    cr TEXT DEFAULT '',
+    hp INTEGER DEFAULT 10,
+    ac INTEGER DEFAULT 12,
+    init_bonus INTEGER DEFAULT 0,
+    speed INTEGER DEFAULT 30,
+    attacks TEXT NOT NULL,
+    note TEXT DEFAULT '',
+    created_at BIGINT NOT NULL
+  )`,
   `CREATE TABLE IF NOT EXISTS items (
     id TEXT PRIMARY KEY,
     character_id TEXT NOT NULL,
@@ -190,13 +203,32 @@ const SCHEMA = [
   )`,
 ];
 
+/**
+ * Add a column to an existing table, ignoring the "already there" error.
+ * SQLite has no ADD COLUMN IF NOT EXISTS, so both engines go through this.
+ */
+async function addColumn(table, column, definition) {
+  try {
+    await run(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+    console.log(`[db] added ${table}.${column}`);
+  } catch (err) {
+    if (!/duplicate column|already exists/i.test(err.message)) throw err;
+  }
+}
+
 export async function migrate() {
   for (const stmt of SCHEMA) await run(stmt);
+
+  // Added after the first release — existing campaigns need it backfilled.
+  await addColumn('characters', 'attacks', `TEXT DEFAULT '[]'`);
+  await run(`UPDATE characters SET attacks = '[]' WHERE attacks IS NULL`);
+
   await run(`CREATE INDEX IF NOT EXISTS idx_mem_campaign ON memberships(campaign_id)`);
   await run(`CREATE INDEX IF NOT EXISTS idx_mem_user ON memberships(user_id)`);
   await run(`CREATE INDEX IF NOT EXISTS idx_char_campaign ON characters(campaign_id)`);
   await run(`CREATE INDEX IF NOT EXISTS idx_items_char ON items(character_id)`);
   await run(`CREATE INDEX IF NOT EXISTS idx_rolls_campaign ON rolls(campaign_id)`);
   await run(`CREATE INDEX IF NOT EXISTS idx_msg_campaign ON messages(campaign_id)`);
+  await run(`CREATE INDEX IF NOT EXISTS idx_presets_campaign ON enemy_presets(campaign_id)`);
   console.log(`[db] ready (${usePg ? 'postgres' : 'sqlite'})`);
 }

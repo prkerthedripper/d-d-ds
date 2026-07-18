@@ -105,3 +105,97 @@ export const SPELLS = [
 export const DEFAULT_SLOTS = Object.fromEntries(
   Array.from({ length: 9 }, (_, i) => [i + 1, { max: 0, used: 0 }]),
 );
+
+// Ready-made monsters the DM can drop straight into an encounter.
+// `attacks` are resolved by the server: d20 + toHit vs AC, then the damage dice.
+const m = (name, cr, hp, ac, initBonus, speed, attacks, note = '') =>
+  ({ name, cr, hp, ac, initBonus, speed, attacks, note });
+
+const atk = (name, toHit, damage, type) => ({ name, toHit, damage, type });
+
+export const MONSTERS = [
+  m('Kobold', '1/8', 5, 12, 2, 30, [
+    atk('Dagger', 4, '1d4+2', 'piercing'),
+    atk('Sling', 4, '1d4+2', 'bludgeoning'),
+  ], 'Pack Tactics: advantage when an ally is next to the target.'),
+
+  m('Giant Rat', '1/8', 7, 12, 2, 30, [
+    atk('Bite', 4, '1d4+2', 'piercing'),
+  ], 'Pack Tactics.'),
+
+  m('Bandit', '1/8', 11, 12, 1, 30, [
+    atk('Scimitar', 3, '1d6+1', 'slashing'),
+    atk('Light Crossbow', 3, '1d8+1', 'piercing'),
+  ]),
+
+  m('Cultist', '1/8', 9, 12, 1, 30, [
+    atk('Scimitar', 3, '1d6+1', 'slashing'),
+  ]),
+
+  m('Goblin', '1/4', 7, 15, 2, 30, [
+    atk('Scimitar', 4, '1d6+2', 'slashing'),
+    atk('Shortbow', 4, '1d6+2', 'piercing'),
+  ], 'Nimble Escape: Disengage or Hide as a bonus action.'),
+
+  m('Skeleton', '1/4', 13, 13, 2, 30, [
+    atk('Shortsword', 4, '1d6+2', 'piercing'),
+    atk('Shortbow', 4, '1d6+2', 'piercing'),
+  ], 'Vulnerable to bludgeoning. Immune to poison.'),
+
+  m('Zombie', '1/4', 22, 8, -2, 20, [
+    atk('Slam', 3, '1d6+1', 'bludgeoning'),
+  ], 'Undead Fortitude: a CON save can leave it at 1 HP instead of dropping.'),
+
+  m('Wolf', '1/4', 11, 13, 2, 40, [
+    atk('Bite', 4, '2d4+2', 'piercing'),
+  ], 'Pack Tactics. A hit can knock the target prone (DC 11 STR).'),
+
+  m('Giant Spider', '1', 26, 14, 3, 30, [
+    atk('Bite', 5, '1d8+3', 'piercing'),
+  ], 'Web. Bite also deals 2d8 poison on a failed DC 11 CON save.'),
+
+  m('Orc', '1/2', 15, 13, 1, 30, [
+    atk('Greataxe', 5, '1d12+3', 'slashing'),
+    atk('Javelin', 5, '1d6+3', 'piercing'),
+  ], 'Aggressive: bonus action dash toward an enemy.'),
+
+  m('Hobgoblin', '1/2', 11, 18, 1, 30, [
+    atk('Longsword', 3, '1d8+1', 'slashing'),
+    atk('Longbow', 3, '1d8+1', 'piercing'),
+  ]),
+
+  m('Dire Wolf', '1', 37, 14, 2, 50, [
+    atk('Bite', 5, '2d6+3', 'piercing'),
+  ], 'Pack Tactics. A hit can knock the target prone (DC 13 STR).'),
+
+  m('Bugbear', '1', 27, 16, 2, 30, [
+    atk('Morningstar', 4, '2d8+2', 'piercing'),
+    atk('Javelin', 4, '2d6+2', 'piercing'),
+  ], 'Surprise Attack: +2d6 damage if it surprises the target.'),
+
+  m('Ghoul', '1', 22, 12, 2, 30, [
+    atk('Claws', 4, '2d4+2', 'slashing'),
+    atk('Bite', 2, '2d6+2', 'piercing'),
+  ], 'Claws can paralyze on a failed DC 10 CON save.'),
+
+  m('Ogre', '2', 59, 11, -1, 40, [
+    atk('Greatclub', 6, '2d8+4', 'bludgeoning'),
+    atk('Javelin', 6, '2d6+4', 'piercing'),
+  ]),
+
+  m('Owlbear', '3', 59, 13, 1, 40, [
+    atk('Beak', 7, '1d10+5', 'piercing'),
+    atk('Claws', 7, '2d8+5', 'slashing'),
+  ], 'Makes two attacks each turn: one beak, one claws.'),
+
+  m('Wight', '3', 45, 14, 2, 30, [
+    atk('Longsword', 4, '1d8+2', 'slashing'),
+    atk('Life Drain', 4, '1d6+2', 'necrotic'),
+  ], 'Life Drain reduces the target’s maximum HP.'),
+
+  m('Troll', '5', 84, 15, 1, 30, [
+    atk('Bite', 7, '1d6+4', 'piercing'),
+    atk('Claw', 7, '2d6+4', 'slashing'),
+  ], 'Regenerates 10 HP per turn unless burned by fire or acid.'),
+];
+

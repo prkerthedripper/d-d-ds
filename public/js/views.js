@@ -1,19 +1,20 @@
 // Page rendering + user actions.
 import {
   state, api, esc, mod, signed, avatar, hpBar, nameOf, ago, isDM, myChars,
-  toast, on, render, loadMe, openCampaign, refresh,
+  toast, on, render, loadMe, openCampaign,
 } from './core.js';
+import { icon } from './icons.js';
 
 export const NAV = [
-  { id: 'home', label: 'Home', icon: '🏠' },
-  { id: 'characters', label: 'Characters', icon: '🛡️' },
-  { id: 'inventory', label: 'Inventory', icon: '🎒' },
-  { id: 'dice', label: 'Dice Roller', icon: '🎲' },
-  { id: 'combat', label: 'Combat', icon: '⚔️' },
-  { id: 'spells', label: 'Spells', icon: '✨' },
-  { id: 'notes', label: 'Notes', icon: '📝' },
-  { id: 'chat', label: 'Chat', icon: '💬' },
-  { id: 'settings', label: 'Settings', icon: '⚙️' },
+  { id: 'home', label: 'Home', icon: 'home' },
+  { id: 'characters', label: 'Characters', icon: 'shield' },
+  { id: 'inventory', label: 'Inventory', icon: 'backpack' },
+  { id: 'dice', label: 'Dice Roller', icon: 'dice' },
+  { id: 'combat', label: 'Combat', icon: 'swords' },
+  { id: 'spells', label: 'Spells', icon: 'sparkles' },
+  { id: 'notes', label: 'Notes', icon: 'notes' },
+  { id: 'chat', label: 'Chat', icon: 'chat' },
+  { id: 'settings', label: 'Settings', icon: 'settings' },
 ];
 
 const ABILITIES = [['str', 'STR'], ['dex', 'DEX'], ['con', 'CON'], ['int', 'INT'], ['wis', 'WIS'], ['cha', 'CHA']];
@@ -33,7 +34,7 @@ export function gateView() {
   <div class="gate">
     <div class="gate-card">
       <div class="brand">
-        <div class="brand-mark">🐉</div>
+        <div class="brand-mark">${icon('dragon', { size: 20 })}</div>
         <div><div class="brand-name" style="color:var(--ink)">D&amp;D DS</div>
         <div class="brand-sub">Dripper Studios</div></div>
       </div>
@@ -89,7 +90,7 @@ export function lobbyView() {
   <div class="gate">
     <div class="gate-card" style="max-width:520px">
       <div class="brand">
-        <div class="brand-mark">🐉</div>
+        <div class="brand-mark">${icon('dragon', { size: 20 })}</div>
         <div><div class="brand-name" style="color:var(--ink)">D&amp;D DS</div>
         <div class="brand-sub">Dripper Studios</div></div>
       </div>
@@ -173,22 +174,22 @@ export function shellView() {
   <div class="app">
     <aside class="sidebar">
       <div class="brand">
-        <div class="brand-mark">🐉</div>
+        <div class="brand-mark">${icon('dragon', { size: 20 })}</div>
         <div><div class="brand-name">D&amp;D DS</div><div class="brand-sub">Dripper Studios</div></div>
       </div>
       <nav class="nav">
         ${NAV.map((n) => `
           <button class="${state.page === n.id ? 'active' : ''}" data-act="go" data-page="${n.id}">
-            <span class="icon">${n.icon}</span>${n.label}
+            <span class="icon">${icon(n.icon)}</span>${n.label}
           </button>`).join('')}
       </nav>
       <div class="side-foot">
         <div class="side-label">Current campaign</div>
         <button class="side-campaign" data-act="switch-campaign">
-          <span>${esc(state.campaign.name)}</span><span>⌄</span>
+          <span>${esc(state.campaign.name)}</span>${icon('chevron', { size: 16 })}
         </button>
         <div class="row" style="margin-top:12px;padding:0 8px">
-          <button class="btn sm" data-act="theme">${state.theme === 'dark' ? '☀️' : '🌙'}</button>
+          <button class="btn sm" data-act="theme">${icon(state.theme === 'dark' ? 'sun' : 'moon', { size: 15 })}</button>
           <span class="tiny">${state.online.length} online</span>
         </div>
       </div>
@@ -202,7 +203,7 @@ export function shellView() {
     <nav class="mobile-bar">
       ${NAV.map((n) => `
         <button class="${state.page === n.id ? 'active' : ''}" data-act="go" data-page="${n.id}">
-          <span class="icon">${n.icon}</span>${n.label.split(' ')[0]}
+          <span class="icon">${icon(n.icon, { size: 20 })}</span>${n.label.split(' ')[0]}
         </button>`).join('')}
     </nav>
   </div>
@@ -244,7 +245,7 @@ function topbarView() {
     </div>
     ${current ? `<div class="tt-turn">${esc(current.name)}’s Turn</div>` : ''}
     ${state.combat.active && isDM()
-      ? '<button class="btn primary sm" data-act="next-turn">Next Player →</button>'
+      ? `<button class="btn primary sm" data-act="next-turn">Next Player ${icon('arrowRight', { size: 14 })}</button>`
       : ''}
   </header>`;
 }
@@ -309,8 +310,8 @@ function homeView() {
     <div class="card">
       <h3>Quick Access</h3>
       <div class="stack">
-        ${[['dice', '🎲 Dice Roller'], ['combat', '⚔️ Initiative Tracker'], ['spells', '✨ Spells'], ['chat', '💬 Party Chat']]
-          .map(([p, t]) => `<button class="btn wide" data-act="go" data-page="${p}" style="justify-content:flex-start">${t}</button>`).join('')}
+        ${[['dice', 'dice', 'Dice Roller'], ['combat', 'swords', 'Initiative Tracker'], ['spells', 'sparkles', 'Spells'], ['chat', 'chat', 'Party Chat']]
+          .map(([p, ic, t]) => `<button class="btn wide" data-act="go" data-page="${p}" style="justify-content:flex-start">${icon(ic, { size: 16 })} ${t}</button>`).join('')}
       </div>
     </div>
   </div>
@@ -367,7 +368,7 @@ function charactersView() {
           </div>
         </button>`).join('') || '<p class="muted">No characters yet.</p>'}
     </div>
-    ${c ? sheetView(c) : '<div class="card empty"><div class="big">🛡️</div>Create a character to get started.</div>'}
+    ${c ? sheetView(c) : `<div class="card empty"><div class="big">${icon('shield', { size: 34 })}</div>Create a character to get started.</div>`}
   </div>`;
 }
 
@@ -434,6 +435,31 @@ function sheetView(c) {
     </div>
 
     <div class="card">
+      <div class="spread"><h3 style="margin:0">Attacks</h3>
+        ${mine ? `<button class="btn sm" data-act="modal" data-name="new-attack">
+          ${icon('plus', { size: 13 })} Add</button>` : ''}</div>
+      <div class="stack" style="margin-top:10px">
+        ${(c.attacks || []).length ? c.attacks.map((a, i) => `
+          <div class="spread">
+            <div class="row">
+              ${icon('sword', { size: 15 })}
+              <div>
+                <div style="font-weight:650;font-size:13.5px">${esc(a.name)}</div>
+                <div class="tiny mono">${signed(a.toHit)} to hit · ${esc(a.damage)} ${esc(a.type || '')}</div>
+              </div>
+            </div>
+            <div class="row">
+              <button class="btn sm" data-act="roll-quick" data-formula="d20${signed(a.toHit)}"
+                data-label="${esc(a.name)} attack">Roll</button>
+              ${mine ? `<button class="btn sm danger" data-act="attack-del" data-id="${c.id}" data-i="${i}">
+                ${icon('trash', { size: 13 })}</button>` : ''}
+            </div>
+          </div>`).join('')
+        : '<p class="muted">No attacks yet. Add one so this character can fight in combat.</p>'}
+      </div>
+    </div>
+
+    <div class="card">
       <h3>Spell Slots</h3>
       <div class="row">
         ${Object.entries(c.slots || {}).map(([lvl, s]) => {
@@ -449,7 +475,7 @@ function sheetView(c) {
           </div>`;
         }).join('') || '<span class="muted">No slots set. Use Edit to add them.</span>'}
       </div>
-      ${mine ? '<button class="btn sm" style="margin-top:12px" data-act="long-rest" data-id="' + c.id + '">🌙 Long Rest (restore all)</button>' : ''}
+      ${mine ? `<button class="btn sm" style="margin-top:12px" data-act="long-rest" data-id="${c.id}">${icon('bed', { size: 15 })} Long Rest (restore all)</button>` : ''}
     </div>
 
     <div class="card">
@@ -517,7 +543,7 @@ on('delete-char', async (el) => {
 
 function inventoryView() {
   const c = selected();
-  if (!c) return '<div class="card empty"><div class="big">🎒</div>Make a character first.</div>';
+  if (!c) return `<div class="card empty"><div class="big">${icon('backpack', { size: 34 })}</div>Make a character first.</div>`;
   const mine = c.ownerId === state.user.id || isDM();
   const q = state.filter.toLowerCase();
   const items = c.items.filter((i) => !q || i.name.toLowerCase().includes(q) || i.category.toLowerCase().includes(q));
@@ -549,7 +575,7 @@ function inventoryView() {
             <td data-l="">${mine ? `<div class="row">
               <button class="btn sm" data-act="item-qty" data-id="${i.id}" data-d="-1">−</button>
               <button class="btn sm" data-act="item-qty" data-id="${i.id}" data-d="1">+</button>
-              <button class="btn sm danger" data-act="item-del" data-id="${i.id}">✕</button>
+              <button class="btn sm danger" data-act="item-del" data-id="${i.id}">${icon('trash', { size: 14 })}</button>
             </div>` : ''}</td>
           </tr>`).join('')
         : '<tr><td colspan="5" class="empty">Nothing here yet.</td></tr>'}
@@ -604,7 +630,7 @@ function diceView() {
           <input name="formula" data-keep="df" class="mono" value="${esc(state.formula || 'd20')}" data-live="formula-live" /></label>
         <label class="field"><span>Label (optional)</span>
           <input name="label" data-keep="dl" placeholder="Attack roll, Stealth check…" /></label>
-        <button class="btn primary wide" type="submit">🎲 Roll Dice</button>
+        <button class="btn primary wide" type="submit">${icon('dice', { size: 16 })} Roll Dice</button>
       </form>
 
       <p class="tiny" style="margin:14px 0 6px">Quick dice</p>
@@ -665,7 +691,7 @@ function combatView() {
     return `
     <div class="page-head"><h1>Combat</h1><p>Initiative order, HP and conditions — synced to everyone.</p></div>
     <div class="card empty">
-      <div class="big">⚔️</div>
+      <div class="big">${icon('swords', { size: 34 })}</div>
       <p>No encounter running.</p>
       ${dm ? '<button class="btn primary" style="margin-top:12px" data-act="start-combat">Start an Encounter</button>'
            : '<p class="tiny">Your DM starts the encounter.</p>'}
@@ -673,42 +699,36 @@ function combatView() {
   }
 
   const active_ = combatants[turnIndex % Math.max(1, combatants.length)];
+  const waiting = combatants.filter((c) => c.init === null || c.init === undefined).length;
+  const attacker = combatants.find((c) => c.id === state.attackFrom);
+
   return `
   <div class="page-head spread">
-    <div><h1>${esc(name)}</h1><p>Round ${round}${active_ ? ` · ${esc(active_.name)}’s turn` : ''}</p></div>
+    <div><h1>${esc(name)}</h1>
+      <p>Round ${round}${active_ ? ` · ${esc(active_.name)}’s turn` : ''}
+      ${waiting ? ` · <span class="tag red">${waiting} still to roll initiative</span>` : ''}</p></div>
     ${dm ? `<div class="row">
-      <button class="btn" data-act="modal" data-name="add-enemy">+ Enemy</button>
-      <button class="btn" data-act="add-party">+ Party</button>
-      <button class="btn" data-act="roll-initiative">🎲 Roll Initiative</button>
-      <button class="btn primary" data-act="next-turn">Next Turn →</button>
+      <button class="btn" data-act="modal" data-name="add-enemy">${icon('skull', { size: 15 })} Enemy</button>
+      <button class="btn" data-act="add-party">${icon('users', { size: 15 })} Party</button>
+      <button class="btn" data-act="roll-initiative-all">${icon('dice', { size: 15 })} Roll for all</button>
+      <button class="btn primary" data-act="next-turn">Next Turn ${icon('arrowRight', { size: 15 })}</button>
       <button class="btn danger" data-act="end-combat">End</button>
     </div>` : ''}
   </div>
+
+  ${attacker ? `<div class="card" style="border-color:var(--accent);margin-bottom:14px">
+    <div class="spread">
+      <div>${icon('target', { size: 16 })} <strong>${esc(attacker.name)}</strong> —
+        ${esc(attackNameOf(attacker, state.attackIndex))}: pick a target below.</div>
+      <button class="btn sm" data-act="cancel-attack">Cancel</button>
+    </div>
+  </div>` : ''}
 
   <div class="grid g2">
     <div class="card">
       <h3>Initiative Order</h3>
       <div>
-        ${combatants.length ? combatants.map((c, i) => `
-          <div class="init-row ${i === turnIndex ? 'turn' : ''} ${c.hp <= 0 ? 'dead' : ''}">
-            <span class="n">${i + 1}</span>
-            <span class="mono" style="width:26px;font-weight:700">${c.init ?? '—'}</span>
-            ${avatar(c.name)}
-            <div class="grow">
-              <div class="spread">
-                <span style="font-weight:650;font-size:14px">${esc(c.name)}</span>
-                <span class="tiny">${c.hp}/${c.maxHp} HP · AC ${c.ac}</span>
-              </div>
-              ${hpBar(c.hp, c.maxHp)}
-              ${(c.conditions || []).length ? `<div class="row" style="margin-top:5px">
-                ${c.conditions.map((n) => `<span class="tag red">${esc(n)}</span>`).join('')}</div>` : ''}
-            </div>
-            ${dm ? `<div class="row" style="flex-wrap:nowrap">
-              ${[-5, -1, 1, 5].map((d) => `<button class="btn sm" data-act="c-hp" data-i="${i}" data-d="${d}">${signed(d)}</button>`).join('')}
-              <button class="btn sm" data-act="modal" data-name="c-cond" data-i="${i}">🩸</button>
-              <button class="btn sm danger" data-act="c-del" data-i="${i}">✕</button>
-            </div>` : ''}
-          </div>`).join('')
+        ${combatants.length ? combatants.map((c, i) => initRow(c, i, turnIndex, dm)).join('')
         : '<p class="muted">Add combatants to begin.</p>'}
       </div>
     </div>
@@ -717,6 +737,62 @@ function combatView() {
       <h3>Combat Log &amp; Chat</h3>
       ${chatBody()}
     </div>
+  </div>`;
+}
+
+/** Name of a combatant's nth attack, preferring their live character sheet. */
+function attackNameOf(combatant, index) {
+  const sheet = combatant.charId ? state.characters.find((x) => x.id === combatant.charId) : null;
+  const attacks = sheet?.attacks?.length ? sheet.attacks : (combatant.attacks || []);
+  return attacks[index]?.name || 'attack';
+}
+
+/** One row of the initiative order, with whatever controls the viewer may use. */
+function initRow(c, i, turnIndex, dm) {
+  const sheet = c.charId ? state.characters.find((x) => x.id === c.charId) : null;
+  const mine = sheet && sheet.ownerId === state.user.id;
+  const canAct = dm || mine;
+  const needsInit = c.init === null || c.init === undefined;
+  const targeting = state.attackFrom && state.attackFrom !== c.id;
+  // Match the server: a character's live sheet wins over the combat snapshot.
+  const attacks = sheet?.attacks?.length ? sheet.attacks : (c.attacks || []);
+
+  return `
+  <div class="init-row ${i === turnIndex ? 'turn' : ''} ${c.hp <= 0 ? 'dead' : ''} ${targeting ? 'targetable' : ''}"
+       ${targeting ? `data-act="pick-target" data-id="${c.id}"` : ''}>
+    <span class="n">${i + 1}</span>
+    <span class="mono" style="width:30px;font-weight:700">${needsInit ? '—' : c.init}</span>
+    ${avatar(c.name)}
+    <div class="grow">
+      <div class="spread">
+        <span style="font-weight:650;font-size:14px">
+          ${c.type === 'enemy' ? icon('skull', { size: 13 }) : icon('shield', { size: 13 })} ${esc(c.name)}
+        </span>
+        <span class="tiny">${c.hp}/${c.maxHp} HP · AC ${c.ac}</span>
+      </div>
+      ${hpBar(c.hp, c.maxHp)}
+      ${(c.conditions || []).length ? `<div class="row" style="margin-top:5px">
+        ${c.conditions.map((n) => `<span class="tag red">${esc(n)}</span>`).join('')}</div>` : ''}
+
+      ${needsInit && canAct ? `
+        <button class="btn sm" style="margin-top:6px" data-act="roll-init-one" data-id="${c.id}">
+          ${icon('dice', { size: 13 })} Roll initiative</button>` : ''}
+
+      ${!needsInit && canAct && c.hp > 0 && attacks.length ? `
+        <div class="row" style="margin-top:6px">
+          ${attacks.map((a, ai) => `
+            <button class="btn sm" data-act="begin-attack" data-id="${c.id}" data-index="${ai}">
+              ${icon('sword', { size: 13 })} ${esc(a.name)}
+              <span class="tiny mono">${signed(a.toHit)} · ${esc(a.damage)}</span>
+            </button>`).join('')}
+        </div>` : ''}
+    </div>
+
+    ${dm ? `<div class="row" style="flex-wrap:nowrap">
+      ${[-5, -1, 1, 5].map((d) => `<button class="btn sm" data-act="c-hp" data-i="${i}" data-d="${d}">${signed(d)}</button>`).join('')}
+      <button class="btn sm" data-act="modal" data-name="c-cond" data-i="${i}" title="Conditions">${icon('heart', { size: 14 })}</button>
+      <button class="btn sm danger" data-act="c-del" data-i="${i}">${icon('x', { size: 14 })}</button>
+    </div>` : ''}
   </div>`;
 }
 
@@ -733,16 +809,42 @@ on('add-party', () => saveCombat({
       .filter((c) => !state.combat.combatants.some((x) => x.charId === c.id))
       .map((c) => ({
         id: crypto.randomUUID(), charId: c.id, name: c.name, sub: c.class, type: 'pc',
-        init: null, hp: c.hp, maxHp: c.maxHp, ac: c.ac, initBonus: c.initBonus, conditions: c.conditions || [],
+        init: null, hp: c.hp, maxHp: c.maxHp, ac: c.ac, initBonus: c.initBonus,
+        conditions: c.conditions || [], attacks: c.attacks || [],
       })),
   ],
 }));
 
-on('roll-initiative', () => {
-  const combatants = state.combat.combatants
-    .map((c) => ({ ...c, init: c.init ?? (1 + Math.floor(Math.random() * 20) + (c.initBonus || 0)) }))
-    .sort((a, b) => b.init - a.init);
-  return saveCombat({ combatants, turnIndex: 0, active: true });
+// ---- initiative
+
+on('roll-init-one', async (el) => {
+  const { init } = await api('POST', `/api/campaigns/${state.campaign.id}/combat/initiative`,
+    { combatantId: el.dataset.id });
+  toast(`Initiative: ${init}`);
+});
+
+on('roll-initiative-all', () => api('POST', `/api/campaigns/${state.campaign.id}/combat/initiative-all`));
+
+// ---- attacks
+
+on('begin-attack', (el) => {
+  state.attackFrom = el.dataset.id;
+  state.attackIndex = Number(el.dataset.index);
+  render();
+});
+
+on('cancel-attack', () => { state.attackFrom = null; render(); });
+
+on('pick-target', async (el) => {
+  const attackerId = state.attackFrom;
+  const index = state.attackIndex;
+  state.attackFrom = null;
+  render();
+
+  const r = await api('POST', `/api/campaigns/${state.campaign.id}/combat/attack`, {
+    attackerId, targetId: el.dataset.id, index, mode: state.rollMode || 'normal',
+  });
+  toast(r.hit ? `${r.crit ? 'CRIT! ' : ''}Hit for ${r.damage}` : `Miss (rolled ${r.attackRoll})`);
 });
 
 on('next-turn', () => {
@@ -784,12 +886,12 @@ function spellsView() {
 
   return `
   <div class="page-head spread">
-    <div><h1>Spells</h1><p>5th Edition reference. Tap ★ to add a spell to ${esc(c?.name || 'your character')}.</p></div>
+    <div><h1>Spells</h1><p>5th Edition reference. Tap the star to add a spell to ${esc(c?.name || 'your character')}.</p></div>
   </div>
 
   <div class="row" style="margin-bottom:12px">
     <input placeholder="Search spells or class…" data-live="filter" data-keep="sp-q" value="${esc(state.filter)}" class="grow" />
-    <button class="pill ${state.spellsMine ? 'on' : ''}" data-act="toggle-mine">★ Known</button>
+    <button class="pill ${state.spellsMine ? 'on' : ''}" data-act="toggle-mine">${icon('star', { size: 14 })} Known</button>
   </div>
 
   <div class="row" style="margin-bottom:14px">
@@ -816,7 +918,7 @@ function spellsView() {
             <p class="muted" style="margin-top:7px">${esc(s.desc)}</p>
           </div>
           ${c ? `<button class="btn sm ${known ? 'primary' : ''}" data-act="know-spell" data-name="${esc(s.name)}">
-            ${known ? '★' : '☆'}</button>` : ''}
+            ${icon('star', { size: 15, fill: known })}</button>` : ''}
         </div>
       </div>`;
     }).join('') || '<div class="card empty">No spells match.</div>'}
@@ -855,12 +957,12 @@ function notesView() {
             <span class="tiny">${esc(nameOf(n.authorId))} · ${ago(n.updatedAt)}</span>
             ${n.authorId === state.user.id || isDM() ? `
               <button class="btn sm" data-act="modal" data-name="edit-note" data-id="${n.id}">Edit</button>
-              <button class="btn sm danger" data-act="note-del" data-id="${n.id}">✕</button>` : ''}
+              <button class="btn sm danger" data-act="note-del" data-id="${n.id}">${icon('trash', { size: 14 })}</button>` : ''}
           </div>
         </div>
         <p class="muted" style="margin-top:9px;white-space:pre-wrap">${esc(n.body)}</p>
       </div>`).join('')
-    : '<div class="card empty"><div class="big">📝</div>No notes yet.</div>'}
+    : `<div class="card empty"><div class="big">${icon('notes', { size: 34 })}</div>No notes yet.</div>`}
   </div>`;
 }
 
@@ -964,7 +1066,7 @@ function settingsView() {
     <h3>Account</h3>
     <p class="muted">${esc(state.user.username)} · ${esc(state.user.email)}</p>
     <div class="row" style="margin-top:12px">
-      <button class="btn" data-act="theme">${state.theme === 'dark' ? '☀️ Light mode' : '🌙 Dark mode'}</button>
+      <button class="btn" data-act="theme">${icon(state.theme === 'dark' ? 'sun' : 'moon', { size: 15 })} ${state.theme === 'dark' ? 'Light mode' : 'Dark mode'}</button>
       <button class="btn" data-act="switch-campaign">Switch campaign</button>
       <button class="btn danger" data-act="logout">Sign out</button>
     </div>
@@ -1005,6 +1107,7 @@ function modalBody(name) {
     case 'new-note': return noteModal(null);
     case 'edit-note': return noteModal(state.notes.find((n) => n.id === state.modal.id));
     case 'add-enemy': return enemyModal();
+    case 'new-attack': return attackModal();
     case 'conditions': return conditionsModal();
     case 'c-cond': return combatantConditionsModal();
     case 'coins': return coinsModal();
@@ -1150,35 +1253,137 @@ on('save-note', async (form) => {
   render();
 });
 
+/** The enemy library: built-in 5e monsters plus anything the DM saved. */
 function enemyModal() {
+  const tab = state.enemyTab || 'library';
+  const q = (state.enemyFilter || '').toLowerCase();
+
+  const library = [
+    ...state.presets.map((p) => ({ ...p, saved: true })),
+    ...state.srd.monsters.map((m) => ({ ...m, saved: false })),
+  ].filter((m) => !q || m.name.toLowerCase().includes(q));
+
   return `
   <h2>Add Enemy</h2>
-  <form data-act="save-enemy">
-    <label class="field"><span>Name</span><input name="name" data-keep="en" placeholder="Goblin Scout" required /></label>
-    <div class="row">
-      <label class="field grow"><span>HP</span><input name="hp" type="number" min="1" value="9" /></label>
-      <label class="field grow"><span>AC</span><input name="ac" type="number" min="1" value="13" /></label>
-      <label class="field grow"><span>Init bonus</span><input name="initBonus" type="number" value="2" /></label>
-      <label class="field grow"><span>How many</span><input name="count" type="number" min="1" max="12" value="1" /></label>
+  <div class="row" style="margin-bottom:12px">
+    <button class="pill ${tab === 'library' ? 'on' : ''}" data-act="enemy-tab" data-tab="library">
+      ${icon('book', { size: 14 })} Library</button>
+    <button class="pill ${tab === 'custom' ? 'on' : ''}" data-act="enemy-tab" data-tab="custom">
+      ${icon('plus', { size: 14 })} Custom</button>
+  </div>
+
+  ${tab === 'library' ? `
+    <input placeholder="Search monsters…" data-live="enemy-filter" data-keep="mq"
+           value="${esc(state.enemyFilter || '')}" style="margin-bottom:10px" />
+    <label class="row" style="margin-bottom:10px">
+      <span class="muted" style="font-size:13px">How many of each:</span>
+      <input id="mcount" type="number" min="1" max="12" value="1" style="width:70px" />
+    </label>
+    <div class="stack">
+      ${library.map((m) => `
+        <div class="card" style="padding:11px">
+          <div class="spread">
+            <div class="grow">
+              <div class="row">
+                <strong style="font-size:14px">${esc(m.name)}</strong>
+                ${m.cr ? `<span class="tag grey">CR ${esc(m.cr)}</span>` : ''}
+                ${m.saved ? '<span class="tag">Saved</span>' : ''}
+              </div>
+              <div class="tiny" style="margin-top:3px">
+                ${m.hp} HP · AC ${m.ac} · init ${signed(m.initBonus)}
+                ${(m.attacks || []).length ? ` · ${m.attacks.map((a) => `${esc(a.name)} ${signed(a.toHit)} (${esc(a.damage)})`).join(', ')}` : ''}
+              </div>
+              ${m.note ? `<div class="tiny" style="margin-top:3px;font-style:italic">${esc(m.note)}</div>` : ''}
+            </div>
+            <div class="row" style="flex-wrap:nowrap">
+              ${m.saved ? `<button class="btn sm danger" data-act="preset-del" data-id="${m.id}"
+                title="Remove from library">${icon('trash', { size: 13 })}</button>` : ''}
+              <button class="btn sm primary" data-act="add-from-library" data-name="${esc(m.name)}"
+                data-saved="${m.saved ? '1' : '0'}">${icon('plus', { size: 13 })} Add</button>
+            </div>
+          </div>
+        </div>`).join('') || '<p class="muted">Nothing matches.</p>'}
     </div>
-    <div class="row">
-      <button class="btn" type="button" data-act="close-modal">Cancel</button>
-      <button class="btn primary grow" type="submit">Add</button>
-    </div>
-  </form>`;
+    <button class="btn wide" style="margin-top:14px" data-act="close-modal">Done</button>`
+  : `
+    <form data-act="save-enemy">
+      <label class="field"><span>Name</span><input name="name" data-keep="en" placeholder="Goblin Boss" required /></label>
+      <div class="row">
+        <label class="field grow"><span>HP</span><input name="hp" type="number" min="1" value="11" /></label>
+        <label class="field grow"><span>AC</span><input name="ac" type="number" min="1" value="13" /></label>
+        <label class="field grow"><span>Init bonus</span><input name="initBonus" type="number" value="2" /></label>
+        <label class="field grow"><span>How many</span><input name="count" type="number" min="1" max="12" value="1" /></label>
+      </div>
+
+      <p class="tiny" style="margin-bottom:6px">ATTACK (so it can actually deal damage)</p>
+      <div class="row">
+        <label class="field grow"><span>Attack name</span><input name="atkName" placeholder="Scimitar" /></label>
+        <label class="field" style="width:90px"><span>To hit</span><input name="atkToHit" type="number" value="4" /></label>
+        <label class="field" style="width:110px"><span>Damage</span><input name="atkDamage" placeholder="1d6+2" /></label>
+      </div>
+
+      <label class="row" style="margin-bottom:12px">
+        <input type="checkbox" name="save" style="width:auto" checked />
+        <span class="muted">Save to the library so you can reuse it</span>
+      </label>
+
+      <div class="row">
+        <button class="btn" type="button" data-act="close-modal">Cancel</button>
+        <button class="btn primary grow" type="submit">Add to combat</button>
+      </div>
+    </form>`}`;
 }
 
-on('save-enemy', async (form) => {
-  const count = Math.max(1, num(form, 'count'));
-  const hp = num(form, 'hp');
-  const base = val(form, 'name');
-  const added = Array.from({ length: count }, (_, i) => ({
+on('enemy-tab', (el) => { state.enemyTab = el.dataset.tab; render(); });
+on('enemy-filter', (el) => { state.enemyFilter = el.value; render(); });
+
+/** Turn a library entry into that many combatants. */
+function spawn(monster, count) {
+  return Array.from({ length: count }, (_, i) => ({
     id: crypto.randomUUID(),
-    name: count > 1 ? `${base} ${i + 1}` : base,
+    name: count > 1 ? `${monster.name} ${i + 1}` : monster.name,
     sub: 'Enemy', type: 'enemy', init: null,
-    hp, maxHp: hp, ac: num(form, 'ac'), initBonus: num(form, 'initBonus'), conditions: [],
+    hp: monster.hp, maxHp: monster.hp, ac: monster.ac,
+    initBonus: monster.initBonus || 0, conditions: [],
+    attacks: monster.attacks || [],
   }));
-  await saveCombat({ active: true, combatants: [...state.combat.combatants, ...added] });
+}
+
+on('add-from-library', async (el) => {
+  const source = el.dataset.saved === '1' ? state.presets : state.srd.monsters;
+  const monster = source.find((m) => m.name === el.dataset.name);
+  if (!monster) return;
+
+  const count = Math.max(1, Math.min(12, Number(document.getElementById('mcount')?.value) || 1));
+  await saveCombat({ active: true, combatants: [...state.combat.combatants, ...spawn(monster, count)] });
+  toast(`Added ${count > 1 ? `${count}× ` : ''}${monster.name}`);
+});
+
+on('preset-del', async (el) => {
+  await api('DELETE', `/api/campaigns/${state.campaign.id}/presets/${el.dataset.id}`);
+  state.presets = state.presets.filter((p) => p.id !== el.dataset.id);
+  render();
+});
+
+on('save-enemy', async (form) => {
+  const attacks = val(form, 'atkName').trim()
+    ? [{ name: val(form, 'atkName').trim(), toHit: num(form, 'atkToHit'), damage: val(form, 'atkDamage') || '1d6' }]
+    : [];
+  const monster = {
+    name: val(form, 'name'), hp: num(form, 'hp'), ac: num(form, 'ac'),
+    initBonus: num(form, 'initBonus'), attacks,
+  };
+
+  if (form.querySelector('[name="save"]')?.checked) {
+    await api('POST', `/api/campaigns/${state.campaign.id}/presets`, { ...monster, cr: '', speed: 30, note: '' });
+    const { presets } = await api('GET', `/api/campaigns/${state.campaign.id}/presets`);
+    state.presets = presets;
+  }
+
+  await saveCombat({
+    active: true,
+    combatants: [...state.combat.combatants, ...spawn(monster, Math.max(1, num(form, 'count')))],
+  });
   state.modal = null;
   render();
 });
@@ -1231,6 +1436,55 @@ on('toggle-c-cond', (el) => {
     return { ...c, conditions: list.includes(name) ? list.filter((x) => x !== name) : [...list, name] };
   });
   return saveCombat({ combatants });
+});
+
+function attackModal() {
+  const c = selected();
+  if (!c) return '<p class="muted">Create a character first.</p>';
+  const strMod = mod(c.stats.str);
+  const dexMod = mod(c.stats.dex);
+
+  return `
+  <h2>Add Attack — ${esc(c.name)}</h2>
+  <p class="muted" style="margin-bottom:14px">
+    To hit is usually your ability modifier + proficiency (${signed(c.profBonus)}).
+    Melee uses STR ${signed(strMod)}, finesse and ranged use DEX ${signed(dexMod)}.
+  </p>
+  <form data-act="save-attack">
+    <label class="field"><span>Name</span>
+      <input name="name" data-keep="an" placeholder="Longbow" required /></label>
+    <div class="row">
+      <label class="field grow"><span>To hit</span>
+        <input name="toHit" type="number" value="${dexMod + c.profBonus}" /></label>
+      <label class="field grow"><span>Damage</span>
+        <input name="damage" placeholder="1d8+${dexMod}" value="1d8${signed(dexMod)}" /></label>
+      <label class="field grow"><span>Type</span>
+        <select name="type">${['slashing', 'piercing', 'bludgeoning', 'fire', 'cold', 'radiant', 'necrotic', 'force', 'poison', 'lightning', 'psychic', 'thunder', 'acid']
+          .map((t) => `<option>${t}</option>`).join('')}</select></label>
+    </div>
+    <div class="row">
+      <button class="btn" type="button" data-act="close-modal">Cancel</button>
+      <button class="btn primary grow" type="submit">Add</button>
+    </div>
+  </form>`;
+}
+
+on('save-attack', async (form) => {
+  const c = selected();
+  const attacks = [...(c.attacks || []), {
+    name: val(form, 'name'), toHit: num(form, 'toHit'),
+    damage: val(form, 'damage') || '1d6', type: val(form, 'type'),
+  }];
+  await api('PATCH', `/api/characters/${c.id}`, { attacks });
+  state.modal = null;
+  render();
+});
+
+on('attack-del', async (el) => {
+  const c = state.characters.find((x) => x.id === el.dataset.id);
+  await api('PATCH', `/api/characters/${c.id}`, {
+    attacks: c.attacks.filter((_, i) => i !== Number(el.dataset.i)),
+  });
 });
 
 function coinsModal() {

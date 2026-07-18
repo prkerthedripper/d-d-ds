@@ -8,8 +8,8 @@ import * as cookie from 'cookie';
 import { Server as SocketServer } from 'socket.io';
 
 import { all, get, run, uid, now, migrate } from './db.js';
-import { roll, describe } from './dice.js';
-import { SPELLS, CONDITIONS, CLASSES, RACES, SKILLS, DEFAULT_SLOTS } from './srd.js';
+import { roll, describe, attackRoll, damageRoll } from './dice.js';
+import { SPELLS, CONDITIONS, CLASSES, RACES, SKILLS, DEFAULT_SLOTS, MONSTERS } from './srd.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = process.env.PORT || 3000;
@@ -126,6 +126,7 @@ function shapeCharacter(row, items = []) {
     spells: P(row.spells, []),
     coins: P(row.coins, {}),
     conditions: P(row.conditions, []),
+    attacks: P(row.attacks, []),
     notes: row.notes,
     portrait: row.portrait,
     items: items.map((i) => ({
@@ -280,6 +281,10 @@ app.get('/api/campaigns/:id', auth, requireMember, wrap(async (req, res) => {
     rolls: await loadRolls(id),
     messages: await loadMessages(id),
     invites: isDM ? await all('SELECT id, email, status FROM invites WHERE campaign_id = ?', [id]) : [],
+    presets: (await all('SELECT * FROM enemy_presets WHERE campaign_id = ? ORDER BY name', [id])).map((r) => ({
+      id: r.id, name: r.name, cr: r.cr, hp: r.hp, ac: r.ac,
+      initBonus: r.init_bonus, speed: r.speed, attacks: P(r.attacks, []), note: r.note,
+    })),
   });
 }));
 
@@ -344,7 +349,10 @@ const CHAR_FIELDS = {
   tempHp: 'temp_hp', ac: 'ac', speed: 'speed', initBonus: 'init_bonus', profBonus: 'prof_bonus',
   notes: 'notes', portrait: 'portrait',
 };
-const CHAR_JSON = { stats: 'stats', slots: 'slots', spells: 'spells', coins: 'coins', conditions: 'conditions' };
+const CHAR_JSON = {
+  stats: 'stats', slots: 'slots', spells: 'spells', coins: 'coins',
+  conditions: 'conditions', attacks: 'attacks',
+};
 
 app.post('/api/campaigns/:id/characters', auth, requireMember, wrap(async (req, res) => {
   const id = uid();
@@ -552,10 +560,174 @@ app.put('/api/campaigns/:id/combat', auth, requireMember, requireDM, wrap(async 
   res.json({ ok: true });
 }));
 
+/** Write the combat state straight back, without going through the DM-only route. */
+async function persistCombat(campaignId, combat) {
+  await run(
+    'UPDATE combat SET active = ?, round = ?, turn_index = ?, name = ?, combatants = ?, updated_at = ? WHERE campaign_id = ?',
+    [combat.active ? 1 : 0, combat.round, combat.turnIndex, combat.name, J(combat.combatants), now(), campaignId],
+  );
+  emit(campaignId, 'combat', await loadCombat(campaignId));
+}
+
+/** Post a line to the combat log (shown in chat and the combat panel). */
+async function logCombat(campaignId, userId, body) {
+  const msg = { id: uid(), userId, body, kind: 'system', createdAt: now() };
+  await run('INSERT INTO messages (id, campaign_id, user_id, body, kind, created_at) VALUES (?, ?, ?, ?, ?, ?)',
+    [msg.id, campaignId, msg.userId, msg.body, msg.kind, msg.createdAt]);
+  emit(campaignId, 'message', msg);
+  return msg;
+}
+
+/** You may act for your own character; the DM may act for anyone. */
+function canControl(combatant, membership, userId, characters) {
+  if (membership.role === 'dm') return true;
+  if (!combatant.charId) return false;
+  return characters.some((c) => c.id === combatant.charId && c.ownerId === userId);
+}
+
+/** Roll initiative for one combatant, then re-sort the order. */
+app.post('/api/campaigns/:id/combat/initiative', auth, requireMember, wrap(async (req, res) => {
+  const combat = await loadCombat(req.campaignId);
+  const characters = await loadCharacters(req.campaignId);
+  const target = combat.combatants.find((c) => c.id === req.body.combatantId);
+  if (!target) throw bad('That combatant is not in the fight', 404);
+  if (!canControl(target, req.membership, req.user.id, characters)) {
+    throw bad('You can only roll for your own character', 403);
+  }
+
+  const r = roll(`1d20${target.initBonus >= 0 ? '+' : ''}${target.initBonus || 0}`);
+  target.init = r.total;
+
+  // Highest first; a tie goes to the better initiative bonus, then by name.
+  combat.combatants.sort((a, b) => {
+    if (a.init === null) return 1;
+    if (b.init === null) return -1;
+    return b.init - a.init || (b.initBonus || 0) - (a.initBonus || 0) || a.name.localeCompare(b.name);
+  });
+
+  await persistCombat(req.campaignId, combat);
+  await logCombat(req.campaignId, req.user.id, `${target.name} rolled initiative: ${r.total} (${describe(r)})`);
+  res.json({ init: r.total });
+}));
+
+/** DM shortcut: roll for everyone who has not rolled yet. */
+app.post('/api/campaigns/:id/combat/initiative-all', auth, requireMember, requireDM, wrap(async (req, res) => {
+  const combat = await loadCombat(req.campaignId);
+  const rolled = [];
+
+  for (const c of combat.combatants) {
+    if (c.init !== null && c.init !== undefined) continue;
+    c.init = roll(`1d20${(c.initBonus || 0) >= 0 ? '+' : ''}${c.initBonus || 0}`).total;
+    rolled.push(`${c.name} ${c.init}`);
+  }
+
+  combat.combatants.sort((a, b) => (b.init ?? -99) - (a.init ?? -99)
+    || (b.initBonus || 0) - (a.initBonus || 0) || a.name.localeCompare(b.name));
+  combat.turnIndex = 0;
+
+  await persistCombat(req.campaignId, combat);
+  if (rolled.length) await logCombat(req.campaignId, req.user.id, `Initiative rolled — ${rolled.join(', ')}`);
+  res.json({ ok: true });
+}));
+
+/**
+ * Resolve one attack: d20 + to-hit against the target's AC, then damage.
+ * Rolled on the server so nobody can fudge it and everyone sees the same result.
+ */
+app.post('/api/campaigns/:id/combat/attack', auth, requireMember, wrap(async (req, res) => {
+  const combat = await loadCombat(req.campaignId);
+  const characters = await loadCharacters(req.campaignId);
+
+  const attacker = combat.combatants.find((c) => c.id === req.body.attackerId);
+  const target = combat.combatants.find((c) => c.id === req.body.targetId);
+  if (!attacker || !target) throw bad('Attacker or target is not in the fight', 404);
+  if (attacker.id === target.id) throw bad('Pick a different target');
+  if (!canControl(attacker, req.membership, req.user.id, characters)) {
+    throw bad('You can only attack with your own character', 403);
+  }
+
+  // A player character's attacks come from their live sheet, so an attack added
+  // mid-fight works without rebuilding the encounter.
+  const sheet = attacker.charId ? characters.find((c) => c.id === attacker.charId) : null;
+  const available = sheet?.attacks?.length ? sheet.attacks : (attacker.attacks || []);
+
+  const attack = available[Number(req.body.index) || 0];
+  if (!attack) throw bad('That attack does not exist');
+
+  const mode = ['advantage', 'disadvantage'].includes(req.body.mode) ? req.body.mode : 'normal';
+  const hitRoll = attackRoll(Number(attack.toHit) || 0, mode);
+
+  let line;
+  let damage = null;
+  const hit = hitRoll.crit || (!hitRoll.fumble && hitRoll.total >= (target.ac || 10));
+
+  if (hit) {
+    damage = damageRoll(String(attack.damage || '1d4'), hitRoll.crit);
+    target.hp = Math.max(0, target.hp - damage.total);
+
+    line = `${attacker.name} ${hitRoll.crit ? 'CRITS' : 'hits'} ${target.name} with ${attack.name} `
+      + `(${hitRoll.total} vs AC ${target.ac}) for ${damage.total} ${attack.type || ''} damage`.trimEnd()
+      + `. ${target.name}: ${target.hp}/${target.maxHp} HP`
+      + (target.hp === 0 ? ' — down!' : '');
+  } else {
+    line = `${attacker.name} misses ${target.name} with ${attack.name} `
+      + `(${hitRoll.fumble ? 'natural 1' : `${hitRoll.total} vs AC ${target.ac}`}).`;
+  }
+
+  // Keep a player character's own sheet in step with its combat HP.
+  if (target.charId) {
+    await run('UPDATE characters SET hp = ? WHERE id = ?', [target.hp, target.charId]);
+    emit(req.campaignId, 'characters', await loadCharacters(req.campaignId));
+  }
+
+  await persistCombat(req.campaignId, combat);
+  await logCombat(req.campaignId, req.user.id, line);
+
+  res.json({ hit, crit: hitRoll.crit, attackRoll: hitRoll.total, damage: damage?.total ?? 0, line });
+}));
+
+// ---------------------------------------------------------------- enemy presets
+
+app.get('/api/campaigns/:id/presets', auth, requireMember, wrap(async (req, res) => {
+  const rows = await all('SELECT * FROM enemy_presets WHERE campaign_id = ? ORDER BY name', [req.campaignId]);
+  res.json({
+    presets: rows.map((r) => ({
+      id: r.id, name: r.name, cr: r.cr, hp: r.hp, ac: r.ac,
+      initBonus: r.init_bonus, speed: r.speed, attacks: P(r.attacks, []), note: r.note,
+    })),
+  });
+}));
+
+app.post('/api/campaigns/:id/presets', auth, requireMember, requireDM, wrap(async (req, res) => {
+  const b = req.body || {};
+  const name = String(b.name || '').trim();
+  if (!name) throw bad('Give the enemy a name');
+
+  const id = uid();
+  await run(
+    `INSERT INTO enemy_presets (id, campaign_id, name, cr, hp, ac, init_bonus, speed, attacks, note, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [id, req.campaignId, name.slice(0, 50), String(b.cr || ''), Number(b.hp) || 10, Number(b.ac) || 12,
+      Number(b.initBonus) || 0, Number(b.speed) || 30,
+      J(Array.isArray(b.attacks) ? b.attacks.slice(0, 8) : []), String(b.note || '').slice(0, 300), now()],
+  );
+  emit(req.campaignId, 'presets', null); // tells clients to refetch the library
+  res.json({ id });
+}));
+
+app.delete('/api/campaigns/:id/presets/:presetId', auth, requireMember, requireDM, wrap(async (req, res) => {
+  await run('DELETE FROM enemy_presets WHERE id = ? AND campaign_id = ?', [req.params.presetId, req.campaignId]);
+  emit(req.campaignId, 'presets', null);
+  res.json({ ok: true });
+}));
+
 // ---------------------------------------------------------------- reference
 
 app.get('/api/srd', (req, res) => {
-  res.json({ spells: SPELLS, conditions: CONDITIONS, classes: CLASSES, races: RACES, skills: SKILLS });
+  res.json({
+    spells: SPELLS, conditions: CONDITIONS, classes: CLASSES,
+    races: RACES, skills: SKILLS, monsters: MONSTERS,
+  });
 });
 
 // ---------------------------------------------------------------- sockets

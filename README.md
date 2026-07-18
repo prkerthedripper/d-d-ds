@@ -13,7 +13,15 @@ everyone on their own phone, everything synced instantly.
 - **Dice roller** — full notation (`2d6+3`, `4d6kh3`), advantage/disadvantage,
   and a shared roll log the whole party sees
 - **Combat tracker** — initiative order, HP, conditions, turn/round advancement
-  (DM-controlled, everyone watches live)
+  - Everyone rolls their **own** initiative; the DM can roll for the stragglers
+  - **Attacks actually resolve**: d20 + to-hit against the target's AC, then damage
+    dice, applied to their HP and written to the combat log. Rolled on the server so
+    nobody can fudge it and everyone sees the same numbers
+  - Natural 20 crits (doubles the dice, not the modifier), natural 1 always misses
+  - Damage to a player character updates their character sheet too
+- **Enemy library** — 18 ready-made 5e monsters with real stat blocks and attacks,
+  plus any custom enemies the DM saves. Drop them into a fight in two clicks,
+  several at a time
 - **Spells** — 5e reference for the common low-level spells, per-character known list
 - **Notes** — shared with the party, or DM-only
 - **Party chat**
@@ -77,5 +85,6 @@ public/
   css/styles.css
   js/core.js   state, API client, socket, render loop
   js/views.js  every page and modal
+  js/icons.js  the inline SVG icon set (no CDN, works offline)
   js/app.js    boot
 ```

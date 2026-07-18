@@ -51,6 +51,47 @@ export function roll(formula) {
   return { formula: clean, total, parts };
 }
 
+/** Sum of only the dice in a result, ignoring flat modifiers. */
+export function diceOnly(result) {
+  return result.parts.reduce((sum, p) => (p.kind === 'dice' ? sum + p.sign * p.sum : sum), 0);
+}
+
+/**
+ * A 5e attack roll. Returns the natural d20 (after advantage) so the caller can
+ * spot a critical hit or an automatic miss.
+ */
+export function attackRoll(toHit, mode = 'normal') {
+  const formula = mode === 'advantage' ? '2d20kh1'
+    : mode === 'disadvantage' ? '2d20kl1'
+      : '1d20';
+  const r = roll(`${formula}${toHit >= 0 ? '+' : ''}${toHit}`);
+  const natural = r.parts[0].kept ? r.parts[0].kept[0] : r.parts[0].rolls[0];
+  return {
+    natural,
+    total: r.total,
+    crit: natural === 20,
+    fumble: natural === 1,
+    detail: describe(r),
+  };
+}
+
+/**
+ * Damage for an attack. On a critical hit 5e doubles the dice but not the
+ * flat modifier, so the dice are rolled a second time and only those added.
+ */
+export function damageRoll(formula, crit = false) {
+  const first = roll(formula);
+  if (!crit) return { total: Math.max(0, first.total), detail: describe(first), crit: false };
+
+  const extra = roll(formula);
+  const bonus = diceOnly(extra);
+  return {
+    total: Math.max(0, first.total + bonus),
+    detail: `${describe(first)} + ${bonus} (crit dice)`,
+    crit: true,
+  };
+}
+
 /** Human-readable breakdown, e.g. "[7, 3] + 5" */
 export function describe(result) {
   return result.parts

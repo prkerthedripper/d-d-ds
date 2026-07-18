@@ -13,8 +13,10 @@ export const state = {
   rolls: [],
   messages: [],
   campaignInvites: [],
+  presets: [],
   online: [],
-  srd: { spells: [], conditions: [], classes: [], races: [], skills: {} },
+  srd: { spells: [], conditions: [], classes: [], races: [], skills: {}, monsters: [] },
+  attackFrom: null, // combatant id picking a target
   page: 'home',
   modal: null,
   filter: '',
@@ -196,6 +198,7 @@ export async function openCampaign(id) {
   state.rolls = data.rolls;
   state.messages = data.messages;
   state.campaignInvites = data.invites || [];
+  state.presets = data.presets || [];
   state.selectedCharId = myChars()[0]?.id || state.characters[0]?.id || null;
   state.page = 'home';
   localStorage.setItem('dndds-campaign', id);
@@ -223,6 +226,12 @@ export function initSocket() {
       case 'combat': state.combat = data; break;
       case 'notes': state.notes = data; break;
       case 'invites': state.campaignInvites = data; break;
+      case 'presets':
+        // The library changed — pull the fresh list.
+        api('GET', `/api/campaigns/${state.campaign.id}/presets`)
+          .then(({ presets }) => { state.presets = presets; render(); })
+          .catch(() => {});
+        break;
       case 'roll':
         state.rolls = [data, ...state.rolls].slice(0, 40);
         if (data.userId !== state.user?.id) {
