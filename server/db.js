@@ -11,7 +11,16 @@ if (usePg) {
   pool = new pg.Pool({
     connectionString: process.env.DATABASE_URL,
     ssl: process.env.DATABASE_URL.includes('localhost') ? false : { rejectUnauthorized: false },
+    // Neon's free tier suspends after a few minutes idle and drops connections,
+    // so keep the pool small and let idle clients go before Neon kills them.
+    max: 5,
+    idleTimeoutMillis: 10_000,
+    connectionTimeoutMillis: 15_000,
   });
+
+  // Without this listener a dropped idle connection is an unhandled 'error'
+  // event, which takes the whole process down.
+  pool.on('error', (err) => console.error('[db] idle client error (recovering):', err.message));
 } else {
   const { DatabaseSync } = await import('node:sqlite');
   const file = process.env.SQLITE_FILE || 'dndds.db';
@@ -25,10 +34,40 @@ function toPg(sql) {
   return sql.replace(/\?/g, () => `$${++i}`);
 }
 
-/** Run a query and return all rows. */
+// Errors that mean "the connection died", not "the query was wrong".
+const TRANSIENT = new Set([
+  'ECONNRESET', 'ETIMEDOUT', 'ECONNREFUSED', 'EPIPE', 'ENOTFOUND',
+  '57P01', // admin_shutdown — Neon suspending the database
+  '57P03', // cannot_connect_now — Neon still waking up
+  '08006', '08003', '08001', // connection failure / does not exist
+  'XX000', // Neon returns this while resuming
+]);
+
+const isTransient = (err) => TRANSIENT.has(err.code)
+  || /terminat|connection|timeout|socket/i.test(err.message || '');
+
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * Run a query and return all rows. On Postgres a dropped or waking connection
+ * is retried a few times so a sleeping Neon database doesn't surface as a
+ * failed button press.
+ */
 export async function all(sql, params = []) {
-  if (usePg) return (await pool.query(toPg(sql), params)).rows;
-  return sqlite.prepare(sql).all(...params);
+  if (!usePg) return sqlite.prepare(sql).all(...params);
+
+  let lastErr;
+  for (let attempt = 0; attempt < 4; attempt++) {
+    try {
+      return (await pool.query(toPg(sql), params)).rows;
+    } catch (err) {
+      lastErr = err;
+      if (!isTransient(err)) throw err;
+      console.warn(`[db] transient error (attempt ${attempt + 1}/4): ${err.message}`);
+      await sleep(250 * 2 ** attempt); // 250ms, 500ms, 1s
+    }
+  }
+  throw lastErr;
 }
 
 /** Run a query and return the first row (or undefined). */
@@ -36,10 +75,10 @@ export async function get(sql, params = []) {
   return (await all(sql, params))[0];
 }
 
-/** Run a statement that returns nothing. */
+/** Run a statement that returns nothing. Retries via all() on Postgres. */
 export async function run(sql, params = []) {
   if (usePg) {
-    await pool.query(toPg(sql), params);
+    await all(sql, params);
     return;
   }
   sqlite.prepare(sql).run(...params);

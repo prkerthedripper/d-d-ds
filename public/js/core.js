@@ -25,14 +25,39 @@ export const state = {
 
 // ---------------------------------------------------------------- api
 
-export async function api(method, path, body) {
-  const res = await fetch(path, {
-    method,
-    headers: body ? { 'Content-Type': 'application/json' } : {},
-    body: body ? JSON.stringify(body) : undefined,
-  });
+const pause = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * On the free hosting tier the server sleeps and the database takes a moment to
+ * wake, so a gateway error or dropped connection is retried rather than shown as
+ * a failed button press.
+ */
+export async function api(method, path, body, attempt = 0) {
+  let res;
+  try {
+    res = await fetch(path, {
+      method,
+      headers: body ? { 'Content-Type': 'application/json' } : {},
+      body: body ? JSON.stringify(body) : undefined,
+    });
+  } catch {
+    // Network blip — no response at all.
+    if (attempt < 3) { await pause(600 * 2 ** attempt); return api(method, path, body, attempt + 1); }
+    throw new Error('Cannot reach the server — check your connection.');
+  }
+
+  if ([502, 503, 504].includes(res.status) && attempt < 3) {
+    if (attempt === 0) toast('Waking the server up…');
+    await pause(1500 * 2 ** attempt);
+    return api(method, path, body, attempt + 1);
+  }
+
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.error || 'Request failed');
+  if (!res.ok) {
+    throw new Error(data.error || (res.status >= 500
+      ? 'The server had a hiccup — try that again.'
+      : `Request failed (${res.status})`));
+  }
   return data;
 }
 

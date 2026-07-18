@@ -561,32 +561,46 @@ app.get('/api/srd', (req, res) => {
 // ---------------------------------------------------------------- sockets
 
 io.use(async (socket, next) => {
-  const raw = socket.handshake.headers.cookie;
-  const token = raw ? cookie.parse(raw)[COOKIE] : null;
-  const user = await userFromToken(token);
-  if (!user) return next(new Error('unauthorized'));
-  socket.data.user = user;
-  next();
+  try {
+    const raw = socket.handshake.headers.cookie;
+    const token = raw ? cookie.parse(raw)[COOKIE] : null;
+    const user = await userFromToken(token);
+    if (!user) return next(new Error('unauthorized'));
+    socket.data.user = user;
+    next();
+  } catch (err) {
+    next(new Error('unauthorized'));
+  }
 });
 
 io.on('connection', (socket) => {
+  // A throw in a socket handler is an unhandled rejection, which would take the
+  // whole server down — so every handler swallows and logs instead.
   socket.on('join', async (campaignId) => {
-    const m = await membership(campaignId, socket.data.user.id);
-    if (!m) return;
-    // Leave any previously joined campaign rooms.
-    for (const room of socket.rooms) {
-      if (room.startsWith('c:') || room.startsWith('u:')) socket.leave(room);
-    }
-    socket.join(`c:${campaignId}`);
-    socket.join(`u:${socket.data.user.id}:${campaignId}`); // for visibility-filtered pushes
-    socket.data.campaignId = campaignId;
+    try {
+      const m = await membership(campaignId, socket.data.user.id);
+      if (!m) return;
+      // Leave any previously joined campaign rooms.
+      for (const room of socket.rooms) {
+        if (room.startsWith('c:') || room.startsWith('u:')) socket.leave(room);
+      }
+      socket.join(`c:${campaignId}`);
+      socket.join(`u:${socket.data.user.id}:${campaignId}`); // for visibility-filtered pushes
+      socket.data.campaignId = campaignId;
 
-    io.to(`c:${campaignId}`).emit('presence', await presenceFor(campaignId));
+      io.to(`c:${campaignId}`).emit('presence', await presenceFor(campaignId));
+    } catch (err) {
+      console.error('[socket] join failed:', err.message);
+    }
   });
 
   socket.on('disconnect', async () => {
-    const id = socket.data.campaignId;
-    if (id) io.to(`c:${id}`).emit('presence', await presenceFor(id));
+    try {
+      const id = socket.data.campaignId;
+      if (id) io.to(`c:${id}`).emit('presence', await presenceFor(id));
+    } catch (err) {
+      console.error('[socket] disconnect cleanup failed:', err.message);
+    }
   });
 });
 
@@ -602,5 +616,10 @@ app.get('*', (req, res) => {
   if (req.path.startsWith('/api/')) return res.status(404).json({ error: 'Not found' });
   res.sendFile(path.join(__dirname, '..', 'public', 'index.html'));
 });
+
+// Last line of defence: log and keep serving rather than dropping the party
+// mid-session because one background promise misbehaved.
+process.on('unhandledRejection', (err) => console.error('[fatal-guard] unhandled rejection:', err));
+process.on('uncaughtException', (err) => console.error('[fatal-guard] uncaught exception:', err));
 
 server.listen(PORT, () => console.log(`D&D DS running on http://localhost:${PORT}`));
