@@ -3,7 +3,7 @@ import {
   state, api, esc, mod, signed, avatar, hpBar, nameOf, ago, isDM, myChars,
   toast, on, render, loadMe, openCampaign, portraitOf,
 } from './core.js';
-import { icon } from './icons.js';
+import { icon, itemTile } from './icons.js';
 import { pickImage } from './images.js';
 
 export const NAV = [
@@ -467,7 +467,17 @@ function sheetView(c) {
           <div class="spread">
             <div>
               <h2 style="font-size:21px">${esc(c.name)}</h2>
-              <p class="muted">Level ${c.level} ${esc(c.race)} ${esc(c.class)} · ${esc(nameOf(c.ownerId))}</p>
+              <p class="muted">Level ${c.level} ${esc(c.race)} ${esc(c.class)}</p>
+              ${isDM() ? `
+                <label class="row" style="margin-top:6px">
+                  <span class="tiny">Played by</span>
+                  <select data-change="assign-char" data-id="${c.id}" style="width:auto">
+                    ${state.members.map((m) => `
+                      <option value="${m.id}" ${m.id === c.ownerId ? 'selected' : ''}>
+                        ${esc(m.username)} (${esc(m.email)})</option>`).join('')}
+                  </select>
+                </label>`
+              : `<p class="tiny">Played by ${esc(nameOf(c.ownerId))}</p>`}
             </div>
             ${mine ? `<div class="row">
               <button class="btn sm" data-act="modal" data-name="edit-char" data-id="${c.id}">Edit</button>
@@ -588,6 +598,11 @@ function sheetView(c) {
 
 on('select-char', (el) => { state.selectedCharId = el.dataset.id; render(); });
 
+on('assign-char', async (el) => {
+  await api('PATCH', `/api/characters/${el.dataset.id}/owner`, { userId: el.value });
+  toast('Character assigned');
+});
+
 on('set-portrait', async (el) => {
   const image = await pickImage(420);
   if (!image) return;
@@ -656,7 +671,10 @@ function inventoryView() {
       <tbody>
         ${items.length ? items.map((i) => `
           <tr>
-            <td data-l="Item"><div><strong>${esc(i.name)}</strong><div class="tiny">${esc(i.category)}</div></div></td>
+            <td data-l="Item"><div class="row" style="flex-wrap:nowrap">
+              ${itemTile(i.category, 34)}
+              <div><strong>${esc(i.name)}</strong><div class="tiny">${esc(i.category)}</div></div>
+            </div></td>
             <td data-l="Details" class="muted">${esc(i.details) || '—'}</td>
             <td data-l="Weight">${i.weight} lb</td>
             <td data-l="Qty">${i.qty}</td>
@@ -874,6 +892,11 @@ function initRow(c, i, turnIndex, dm) {
               <span class="tiny mono">${signed(a.toHit)} · ${esc(a.damage)}</span>
             </button>`).join('')}
         </div>` : ''}
+
+      ${dm && c.type === 'enemy' && c.hp <= 0 ? `
+        <button class="btn sm ${c.looted ? '' : 'primary'}" style="margin-top:6px"
+          data-act="modal" data-name="loot" data-i="${i}" ${c.looted ? 'disabled' : ''}>
+          ${icon('coin', { size: 13 })} ${c.looted ? 'Looted' : 'Collect loot'}</button>` : ''}
     </div>
 
     ${dm ? `<div class="row" style="flex-wrap:nowrap">
@@ -1085,16 +1108,78 @@ function entryCard(e) {
       </div>
       ${e.subtitle ? `<div class="tiny" style="margin-top:3px">${esc(e.subtitle)}</div>` : ''}
       ${e.body ? `<p class="muted" style="margin-top:8px;white-space:pre-wrap">${esc(e.body)}</p>` : ''}
-      ${e.kind === 'shop' && (e.data.stock || []).length ? `
-        <table style="margin-top:10px">
-          ${e.data.stock.map((s) => `<tr>
-            <td style="padding:5px 0">${esc(s.name)}</td>
-            <td style="padding:5px 0;text-align:right" class="mono">${esc(s.price)}</td>
-          </tr>`).join('')}
-        </table>` : ''}
+      ${e.kind === 'shop' ? shopStock(e) : ''}
     </div>
   </div>`;
 }
+
+/** Shop stock with a Buy button per line, priced against the buyer's purse. */
+function shopStock(entry) {
+  const stock = entry.data.stock || [];
+  if (!stock.length) return '<p class="muted" style="margin-top:8px">Nothing in stock.</p>';
+
+  // Players spend from their own character; the DM can buy for anyone.
+  const buyers = isDM() ? state.characters : myChars();
+  const buyer = buyers.find((c) => c.id === state.shopBuyerId) || buyers[0];
+
+  return `
+  <div style="margin-top:12px">
+    ${buyers.length > 1 ? `
+      <label class="row" style="margin-bottom:8px">
+        <span class="tiny">Buying as</span>
+        <select data-change="shop-buyer" style="width:auto">
+          ${buyers.map((c) => `<option value="${c.id}" ${c.id === buyer?.id ? 'selected' : ''}>${esc(c.name)}</option>`).join('')}
+        </select>
+      </label>` : ''}
+
+    ${buyer ? `<div class="tiny" style="margin-bottom:8px">
+      ${icon('coin', { size: 13 })} ${esc(buyer.name)} has ${purseText(buyer.coins)}</div>` : ''}
+
+    <div class="stack">
+      ${stock.map((s, i) => `
+        <div class="spread shop-line">
+          <div class="row" style="flex-wrap:nowrap">
+            ${itemTile(s.category || guessCategory(s.name), 34)}
+            <div>
+              <div style="font-size:13.5px;font-weight:600">${esc(s.name)}</div>
+              <div class="tiny mono">${esc(s.price || 'free')}</div>
+            </div>
+          </div>
+          ${buyer
+            ? `<button class="btn sm primary" data-act="buy-item"
+                data-entry="${entry.id}" data-index="${i}" data-char="${buyer.id}">
+                ${icon('plus', { size: 13 })} Buy</button>`
+            : '<span class="tiny">No character</span>'}
+        </div>`).join('')}
+    </div>
+  </div>`;
+}
+
+/** Best-guess category from an item name, so shop lines get sensible art. */
+function guessCategory(name) {
+  const n = String(name).toLowerCase();
+  if (/potion|elixir|draught|flask/.test(n)) return 'Potion';
+  if (/sword|axe|bow|dagger|mace|spear|club|hammer|blade|staff|crossbow/.test(n)) return 'Weapon';
+  if (/armor|armour|shield|mail|plate|leather|helm/.test(n)) return 'Armor';
+  if (/arrow|bolt|bullet|ammunition/.test(n)) return 'Ammunition';
+  if (/scroll|tome|book|map/.test(n)) return 'Other';
+  if (/gem|jewel|ring|amulet|relic/.test(n)) return 'Quest Item';
+  return 'Gear';
+}
+
+const purseText = (coins) => ['pp', 'gp', 'sp', 'cp']
+  .filter((k) => coins?.[k]).map((k) => `${coins[k]} ${k}`).join(', ') || '0 gp';
+
+on('shop-buyer', (el) => { state.shopBuyerId = el.value; render(); });
+
+on('buy-item', async (el) => {
+  await api('POST', `/api/entries/${el.dataset.entry}/buy`, {
+    characterId: el.dataset.char,
+    index: Number(el.dataset.index),
+    qty: 1,
+  });
+  toast('Bought — check your inventory');
+});
 
 function timelineView(list) {
   if (!list.length) {
@@ -1400,6 +1485,7 @@ function modalBody(name) {
     case 'edit-note': return noteModal(state.notes.find((n) => n.id === state.modal.id));
     case 'add-enemy': return enemyModal();
     case 'new-attack': return attackModal();
+    case 'loot': return lootModal();
     case 'new-entry': return entryModal(null);
     case 'edit-entry': return entryModal(state.entries.find((e) => e.id === state.modal.id));
     case 'conditions': return conditionsModal();
@@ -1410,10 +1496,19 @@ function modalBody(name) {
 }
 
 function modalView() {
-  return `<div class="modal-bg" data-act="close-modal">
-    <div class="modal" onclick="event.stopPropagation()">${modalBody(state.modal.name)}</div>
+  // The backdrop closes on its own clicks only — see the 'modal-backdrop'
+  // handler. It must NOT stopPropagation, or every button inside would die.
+  return `<div class="modal-bg" data-act="modal-backdrop">
+    <div class="modal">${modalBody(state.modal.name)}</div>
   </div>`;
 }
+
+on('modal-backdrop', (el, ds, e) => {
+  if (e.target !== el) return; // a click on the modal's contents, not the backdrop
+  state.draftImage = undefined;
+  state.modal = null;
+  render();
+});
 
 function charFormModal(c) {
   const s = c?.stats || { str: 10, dex: 10, con: 10, int: 10, wis: 10, cha: 10 };
@@ -1616,6 +1711,15 @@ function enemyModal() {
         <label class="field" style="width:110px"><span>Damage</span><input name="atkDamage" placeholder="1d6+2" /></label>
       </div>
 
+      <p class="tiny" style="margin-bottom:4px">DROPS — one per line</p>
+      <p class="tiny" style="margin-bottom:6px;color:var(--ink-3)">
+        <code>Rusty Sword = 60%</code> · <code>Arrow x2d4 = 100%</code> · <code>gold = 2d6 gp</code><br />
+        Leave the % off and it always drops. That is how you make drops random or fixed.
+      </p>
+      <textarea name="loot" style="min-height:78px" placeholder="Rusty Sword = 60%
+gold = 2d6 gp"></textarea>
+      <div style="height:12px"></div>
+
       <label class="row" style="margin-bottom:12px">
         <input type="checkbox" name="save" style="width:auto" checked />
         <span class="muted">Save to the library so you can reuse it</span>
@@ -1640,7 +1744,39 @@ function spawn(monster, count) {
     hp: monster.hp, maxHp: monster.hp, ac: monster.ac,
     initBonus: monster.initBonus || 0, conditions: [],
     attacks: monster.attacks || [],
+    loot: monster.loot || [], // each copy rolls its own drops
+    looted: false,
   }));
+}
+
+/**
+ * Parse the drops textarea.
+ *   "Rusty Sword = 60%"  -> 60% chance of one
+ *   "Arrow x2d4"         -> always drops, quantity rolled
+ *   "gold = 2d6 gp"      -> coins
+ */
+function parseLoot(text) {
+  return String(text || '').split('\n').map((line) => line.trim()).filter(Boolean)
+    .map((line) => {
+      const [left, right = ''] = line.split('=');
+      const label = left.trim();
+
+      if (/^(gold|coins?|money)$/i.test(label)) {
+        const m = right.trim().match(/^([\dd+\-\s]+)\s*(cp|sp|ep|gp|pp)?/i);
+        return { kind: 'coins', formula: (m?.[1] || '1d6').trim(), coin: (m?.[2] || 'gp').toLowerCase() };
+      }
+
+      const qtyMatch = label.match(/\s+x\s*([\dd+\-]+)$/i);
+      const name = qtyMatch ? label.slice(0, qtyMatch.index).trim() : label;
+      const chance = right.trim() ? parseInt(right, 10) : 100;
+
+      return {
+        name,
+        qty: qtyMatch ? qtyMatch[1] : '1',
+        chance: Number.isFinite(chance) ? Math.max(1, Math.min(100, chance)) : 100,
+        category: guessCategory(name),
+      };
+    });
 }
 
 on('add-from-library', async (el) => {
@@ -1665,7 +1801,7 @@ on('save-enemy', async (form) => {
     : [];
   const monster = {
     name: val(form, 'name'), hp: num(form, 'hp'), ac: num(form, 'ac'),
-    initBonus: num(form, 'initBonus'), attacks,
+    initBonus: num(form, 'initBonus'), attacks, loot: parseLoot(val(form, 'loot')),
   };
 
   if (form.querySelector('[name="save"]')?.checked) {
@@ -1730,6 +1866,58 @@ on('toggle-c-cond', (el) => {
     return { ...c, conditions: list.includes(name) ? list.filter((x) => x !== name) : [...list, name] };
   });
   return saveCombat({ combatants });
+});
+
+function lootModal() {
+  const c = state.combat.combatants[Number(state.modal.i)];
+  if (!c) return '<p class="muted">That enemy is gone.</p>';
+  const loot = c.loot || [];
+
+  return `
+  <h2>Loot — ${esc(c.name)}</h2>
+  ${loot.length ? `
+    <p class="muted" style="margin-bottom:12px">
+      Drop table — anything under 100% is rolled for, so each kill can differ.
+    </p>
+    <div class="stack" style="margin-bottom:16px">
+      ${loot.map((l) => (l.kind === 'coins'
+        ? `<div class="spread"><div class="row">${itemTile('Other', 30)}
+            <span style="font-size:13.5px">Coins</span></div>
+           <span class="tiny mono">${esc(l.formula)} ${esc(l.coin || 'gp')}</span></div>`
+        : `<div class="spread"><div class="row">${itemTile(l.category || 'Gear', 30)}
+            <span style="font-size:13.5px">${esc(l.name)}${l.qty && l.qty !== '1' ? ` ×${esc(l.qty)}` : ''}</span></div>
+           <span class="tag ${(l.chance ?? 100) >= 100 ? '' : 'grey'}">${l.chance ?? 100}%</span></div>`)).join('')}
+    </div>`
+  : '<p class="muted" style="margin-bottom:16px">No drop table on this one — it will come up empty.</p>'}
+
+  <label class="field"><span>Who picks it up?</span>
+    <select name="who" id="lootwho">
+      ${state.characters.map((ch) => `<option value="${ch.id}">${esc(ch.name)}</option>`).join('')}
+    </select></label>
+
+  <div class="row">
+    <button class="btn" type="button" data-act="close-modal">Cancel</button>
+    <button class="btn primary grow" data-act="do-loot" data-i="${state.modal.i}">
+      ${icon('dice', { size: 15 })} Roll the drops</button>
+  </div>`;
+}
+
+on('do-loot', async (el) => {
+  const c = state.combat.combatants[Number(el.dataset.i)];
+  const characterId = document.getElementById('lootwho')?.value;
+  if (!characterId) return toast('Make a character first', 'err');
+
+  const r = await api('POST', `/api/campaigns/${state.campaign.id}/combat/loot`, {
+    combatantId: c.id, characterId,
+  });
+
+  const got = [
+    ...r.items.map((i) => `${i.qty > 1 ? `${i.qty}× ` : ''}${i.name}`),
+    ...(r.copper ? [`${Math.floor(r.copper / 100)} gp`] : []),
+  ];
+  toast(got.length ? `Got ${got.join(', ')}` : 'Nothing dropped');
+  state.modal = null;
+  render();
 });
 
 function attackModal() {

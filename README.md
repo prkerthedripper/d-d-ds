@@ -13,6 +13,14 @@ everyone on their own phone, everything synced instantly.
   photo becomes ~40 KB before it is stored)
 - **Campaign Codex** — quests, NPCs, locations, shops and a session timeline, each
   with its own picture. Anything the DM marks DM-only never reaches players
+- **Shops you can actually buy from** — players spend their own gold, the coins come
+  off their sheet and the item lands in their inventory, stacking if they already
+  had one. Prices understand `50 gp`, `2 sp`, `10 cp`
+- **Loot tables** — every enemy can carry drops with a percentage each, so a goblin
+  always leaves its scimitar but only sometimes the good stuff. Coins roll on a
+  formula (`2d6 gp`). The DM loots a downed enemy straight into a character's bag
+- **The DM assigns characters to players** by picking their email, and that player
+  then owns the sheet — stats, spells, inventory and all
 - **Inventory** — per character, with weight and quantities
 - **Dice roller** — full notation (`2d6+3`, `4d6kh3`), advantage/disadvantage,
   and a shared roll log the whole party sees

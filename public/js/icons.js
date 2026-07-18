@@ -42,7 +42,36 @@ const PATHS = {
   book: '<path d="M4 5a2 2 0 0 1 2-2h5v17H6a2 2 0 0 0-2 2Z"/><path d="M20 5a2 2 0 0 0-2-2h-5v17h5a2 2 0 0 1 2 2Z"/>',
   bed: '<path d="M3 18V7"/><path d="M3 12h18v6"/><path d="M3 18h18"/><circle cx="7.5" cy="9.5" r="1.8"/><path d="M11 12V9.5a1 1 0 0 1 1-1h6a3 3 0 0 1 3 3V12"/>',
   hourglass: '<path d="M7 3h10"/><path d="M7 21h10"/><path d="M7 3v3.5L12 12l5-5.5V3"/><path d="M7 21v-3.5L12 12l5 5.5V21"/>',
+
+  // item categories
+  potion: '<path d="M10 3h4"/><path d="M10.5 3v5L6.6 15.4A3 3 0 0 0 9.3 20h5.4a3 3 0 0 0 2.7-4.6L13.5 8V3"/><path d="M8 14h8"/>',
+  armor: '<path d="M12 21s7-3.5 7-9V5.5L12 3 5 5.5V12c0 5.5 7 9 7 9Z"/><path d="M12 3v18"/>',
+  arrow: '<path d="M4 20 20 4"/><path d="M15 4h5v5"/><path d="M4 20h4v-4"/>',
+  coin: '<circle cx="12" cy="12" r="8"/><path d="M12 8v8"/><path d="M9.5 10.5h4a1.5 1.5 0 0 1 0 3h-3a1.5 1.5 0 0 0 0 3h4"/>',
+  gem: '<path d="m12 3 8 6-8 12L4 9Z"/><path d="M4 9h16"/><path d="m12 3-4 6 4 12 4-12Z"/>',
+  scroll: '<path d="M7 4h10a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Z"/><path d="M9 9h6"/><path d="M9 13h6"/><path d="M9 17h3"/>',
+  shop: '<path d="M4 9h16v10a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2Z"/><path d="M3 9 5 4h14l2 5"/><path d="M9 21v-6h6v6"/>',
 };
+
+/** Category -> icon + tint, used for the placeholder art on inventory items. */
+export const ITEM_LOOK = {
+  Weapon: { icon: 'sword', tint: '#c0392b' },
+  Armor: { icon: 'armor', tint: '#5b6b8c' },
+  Potion: { icon: 'potion', tint: '#2e9e5b' },
+  Ammunition: { icon: 'arrow', tint: '#a06a2c' },
+  'Quest Item': { icon: 'gem', tint: '#8a4fbf' },
+  Gear: { icon: 'backpack', tint: '#6d47e0' },
+  Other: { icon: 'scroll', tint: '#7a7686' },
+};
+
+export const itemLook = (category) => ITEM_LOOK[category] || ITEM_LOOK.Other;
+
+/** A square tinted tile with the category icon — the item "picture". */
+export function itemTile(category, size = 38) {
+  const look = itemLook(category);
+  return `<span class="item-tile" style="--tint:${look.tint};width:${size}px;height:${size}px">
+    ${icon(look.icon, { size: Math.round(size * 0.55) })}</span>`;
+}
 
 /**
  * @param {string} name  key from PATHS

@@ -156,6 +156,15 @@ p { margin: 0; }
 /* Portraits are set as a background image so they always fill the circle. */
 .avatar[style*="background-image"] { background-size: cover; background-position: center; }
 
+/* Placeholder art for inventory and shop items, tinted by category. */
+.item-tile {
+  display: inline-grid; place-items: center; flex-shrink: 0;
+  border-radius: 9px;
+  color: var(--tint, var(--accent));
+  background: color-mix(in srgb, var(--tint, var(--accent)) 14%, transparent);
+  border: 1px solid color-mix(in srgb, var(--tint, var(--accent)) 30%, transparent);
+}
+
 .portrait-slot { position: relative; flex-shrink: 0; }
 .portrait-edit {
   position: absolute; right: -2px; bottom: -2px;

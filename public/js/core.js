@@ -141,7 +141,10 @@ export function bindEvents(root, render) {
     const fn = actions.get(el.dataset.act);
     if (!fn) return;
     e.preventDefault();
-    Promise.resolve(fn(el, el.dataset)).catch(fail);
+    // Handlers get the event so overlays can tell a backdrop click from a click
+    // on their own contents. Never stop propagation inside the app — this
+    // listener is delegated, so anything swallowed here stops working entirely.
+    Promise.resolve(fn(el, el.dataset, e)).catch(fail);
   });
 
   root.addEventListener('submit', (e) => {

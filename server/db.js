@@ -239,6 +239,8 @@ export async function migrate() {
   // Added after the first release — existing campaigns need it backfilled.
   await addColumn('characters', 'attacks', `TEXT DEFAULT '[]'`);
   await run(`UPDATE characters SET attacks = '[]' WHERE attacks IS NULL`);
+  await addColumn('enemy_presets', 'loot', `TEXT DEFAULT '[]'`);
+  await run(`UPDATE enemy_presets SET loot = '[]' WHERE loot IS NULL`);
 
   await run(`CREATE INDEX IF NOT EXISTS idx_mem_campaign ON memberships(campaign_id)`);
   await run(`CREATE INDEX IF NOT EXISTS idx_mem_user ON memberships(user_id)`);

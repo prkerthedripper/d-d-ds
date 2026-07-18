@@ -284,7 +284,8 @@ app.get('/api/campaigns/:id', auth, requireMember, wrap(async (req, res) => {
     entries: await loadEntries(id, isDM),
     presets: (await all('SELECT * FROM enemy_presets WHERE campaign_id = ? ORDER BY name', [id])).map((r) => ({
       id: r.id, name: r.name, cr: r.cr, hp: r.hp, ac: r.ac,
-      initBonus: r.init_bonus, speed: r.speed, attacks: P(r.attacks, []), note: r.note,
+      initBonus: r.init_bonus, speed: r.speed, attacks: P(r.attacks, []),
+      loot: P(r.loot, []), note: r.note,
     })),
   });
 }));
@@ -406,6 +407,25 @@ app.patch('/api/characters/:id', auth, wrap(characterAccess), wrap(async (req, r
     await run(`UPDATE characters SET ${col} = ? WHERE id = ?`, [J(req.body[key]), req.params.id]);
   }
   emit(req.campaignId, 'characters', await loadCharacters(req.campaignId));
+  res.json({ ok: true });
+}));
+
+/** DM hands a character to a player, who then owns and edits that sheet. */
+app.patch('/api/characters/:id/owner', auth, wrap(characterAccess), wrap(async (req, res) => {
+  if (req.membership?.role !== 'dm') {
+    const m = await membership(req.campaignId, req.user.id);
+    if (m?.role !== 'dm') throw bad('Only the DM can assign characters', 403);
+  }
+
+  const target = await membership(req.campaignId, String(req.body.userId || ''));
+  if (!target) throw bad('That player is not in this campaign');
+
+  await run('UPDATE characters SET owner_id = ? WHERE id = ?', [target.user_id, req.params.id]);
+  emit(req.campaignId, 'characters', await loadCharacters(req.campaignId));
+
+  const who = await get('SELECT username FROM users WHERE id = ?', [target.user_id]);
+  await logCombat(req.campaignId, req.user.id,
+    `${req.character.name} is now played by ${who?.username || 'a player'}.`);
   res.json({ ok: true });
 }));
 
@@ -816,6 +836,164 @@ app.delete('/api/entries/:id', auth, entryAccess, wrap(async (req, res) => {
   res.json({ ok: true });
 }));
 
+// ---------------------------------------------------------------- shopping
+
+// 5e coin values, all in copper.
+const COIN_VALUE = { cp: 1, sp: 10, ep: 50, gp: 100, pp: 1000 };
+
+/** "50 gp" / "2sp" / "free" -> value in copper. Unparseable means free. */
+function priceInCopper(text) {
+  const m = String(text || '').trim().toLowerCase().match(/^([\d.]+)\s*(cp|sp|ep|gp|pp)?/);
+  if (!m) return 0;
+  const amount = parseFloat(m[1]);
+  if (!Number.isFinite(amount) || amount < 0) return 0;
+  return Math.round(amount * (COIN_VALUE[m[2]] || COIN_VALUE.gp));
+}
+
+const purseInCopper = (coins) => Object.entries(COIN_VALUE)
+  .reduce((sum, [k, v]) => sum + (Number(coins?.[k]) || 0) * v, 0);
+
+/**
+ * Turn a copper total back into coins. Deliberately stops at gold rather than
+ * rolling up into platinum — "49 gp" is what a player expects to see after
+ * spending, not "4 pp 9 gp".
+ */
+function copperToCoins(total) {
+  let left = Math.max(0, Math.round(total));
+  const out = { pp: 0, gp: 0, ep: 0, sp: 0, cp: 0 };
+  for (const k of ['gp', 'sp', 'cp']) {
+    out[k] = Math.floor(left / COIN_VALUE[k]);
+    left -= out[k] * COIN_VALUE[k];
+  }
+  return out;
+}
+
+/** Buy one item from a shop entry: checks funds, deducts, adds to inventory. */
+app.post('/api/entries/:id/buy', auth, wrap(async (req, res) => {
+  const entry = await get('SELECT * FROM entries WHERE id = ?', [req.params.id]);
+  if (!entry || entry.kind !== 'shop') throw bad('That shop does not exist', 404);
+
+  const m = await membership(entry.campaign_id, req.user.id);
+  if (!m) throw bad('Not your campaign', 403);
+  if (entry.dm_only && m.role !== 'dm') throw bad('That shop is not open to you', 403);
+
+  const stock = P(entry.data, {}).stock || [];
+  const item = stock[Number(req.body.index)];
+  if (!item) throw bad('That item is not for sale');
+
+  const character = await get('SELECT * FROM characters WHERE id = ?', [String(req.body.characterId || '')]);
+  if (!character || character.campaign_id !== entry.campaign_id) throw bad('Character not found', 404);
+  if (character.owner_id !== req.user.id && m.role !== 'dm') throw bad('That is not your character', 403);
+
+  const qty = Math.max(1, Math.min(20, Number(req.body.qty) || 1));
+  const cost = priceInCopper(item.price) * qty;
+  const coins = P(character.coins, {});
+  const purse = purseInCopper(coins);
+
+  if (cost > purse) {
+    throw bad(`${character.name} cannot afford that — it costs ${item.price}`);
+  }
+
+  await run('UPDATE characters SET coins = ? WHERE id = ?',
+    [J(copperToCoins(purse - cost)), character.id]);
+
+  // Stack with an identical item already carried, rather than duplicating rows.
+  const existing = await get('SELECT * FROM items WHERE character_id = ? AND name = ?', [character.id, item.name]);
+  if (existing) {
+    await run('UPDATE items SET qty = ? WHERE id = ?', [existing.qty + qty, existing.id]);
+  } else {
+    await run(
+      `INSERT INTO items (id, character_id, name, category, details, weight, qty, equipped, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?)`,
+      [uid(), character.id, String(item.name).slice(0, 60), String(item.category || 'Gear'),
+        `Bought from ${entry.title} for ${item.price}`, Number(item.weight) || 0, qty, now()],
+    );
+  }
+
+  emit(entry.campaign_id, 'characters', await loadCharacters(entry.campaign_id));
+  await logCombat(entry.campaign_id, req.user.id,
+    `${character.name} bought ${qty > 1 ? `${qty}× ` : ''}${item.name} from ${entry.title} for ${item.price}${qty > 1 ? ' each' : ''}.`);
+
+  res.json({ ok: true, coins: copperToCoins(purse - cost) });
+}));
+
+// ---------------------------------------------------------------- loot
+
+/**
+ * Roll an enemy's drops. Each line has a chance, so the same enemy can be set
+ * up to always drop its weapon and only sometimes drop something good.
+ */
+function rollLoot(loot) {
+  const items = [];
+  let copper = 0;
+
+  for (const entry of loot || []) {
+    if (entry.kind === 'coins') {
+      try {
+        copper += priceInCopper(`${roll(entry.formula || '1d6').total} ${entry.coin || 'gp'}`);
+      } catch { /* a bad formula just drops no coins */ }
+      continue;
+    }
+    const chance = entry.chance === undefined ? 100 : Number(entry.chance);
+    if (roll('1d100').total > chance) continue;
+
+    let qty = 1;
+    if (entry.qty) {
+      try { qty = Math.max(1, roll(String(entry.qty)).total); } catch { qty = 1; }
+    }
+    items.push({ name: entry.name, category: entry.category || 'Gear', qty });
+  }
+  return { items, copper };
+}
+
+/** DM loots a downed enemy into a character's inventory. */
+app.post('/api/campaigns/:id/combat/loot', auth, requireMember, requireDM, wrap(async (req, res) => {
+  const combat = await loadCombat(req.campaignId);
+  const target = combat.combatants.find((c) => c.id === req.body.combatantId);
+  if (!target) throw bad('That combatant is gone', 404);
+  if (target.hp > 0) throw bad('They are still standing');
+  if (target.looted) throw bad('Already looted');
+
+  const character = await get('SELECT * FROM characters WHERE id = ?', [String(req.body.characterId || '')]);
+  if (!character || character.campaign_id !== req.campaignId) throw bad('Pick who is carrying it', 404);
+
+  const { items, copper } = rollLoot(target.loot);
+
+  for (const item of items) {
+    const existing = await get('SELECT * FROM items WHERE character_id = ? AND name = ?', [character.id, item.name]);
+    if (existing) {
+      await run('UPDATE items SET qty = ? WHERE id = ?', [existing.qty + item.qty, existing.id]);
+    } else {
+      await run(
+        `INSERT INTO items (id, character_id, name, category, details, weight, qty, equipped, created_at)
+         VALUES (?, ?, ?, ?, ?, 0, ?, 0, ?)`,
+        [uid(), character.id, item.name, item.category, `Looted from ${target.name}`, item.qty, now()],
+      );
+    }
+  }
+
+  if (copper) {
+    const coins = P(character.coins, {});
+    await run('UPDATE characters SET coins = ? WHERE id = ?',
+      [J(copperToCoins(purseInCopper(coins) + copper)), character.id]);
+  }
+
+  target.looted = true;
+  await persistCombat(req.campaignId, combat);
+  emit(req.campaignId, 'characters', await loadCharacters(req.campaignId));
+
+  const summary = [
+    ...items.map((i) => `${i.qty > 1 ? `${i.qty}× ` : ''}${i.name}`),
+    ...(copper ? [`${Math.floor(copper / 100)} gp`] : []),
+  ];
+  await logCombat(req.campaignId, req.user.id,
+    summary.length
+      ? `${character.name} loots ${target.name}: ${summary.join(', ')}.`
+      : `${target.name} had nothing worth taking.`);
+
+  res.json({ items, copper });
+}));
+
 // ---------------------------------------------------------------- enemy presets
 
 app.get('/api/campaigns/:id/presets', auth, requireMember, wrap(async (req, res) => {
@@ -823,7 +1001,8 @@ app.get('/api/campaigns/:id/presets', auth, requireMember, wrap(async (req, res)
   res.json({
     presets: rows.map((r) => ({
       id: r.id, name: r.name, cr: r.cr, hp: r.hp, ac: r.ac,
-      initBonus: r.init_bonus, speed: r.speed, attacks: P(r.attacks, []), note: r.note,
+      initBonus: r.init_bonus, speed: r.speed, attacks: P(r.attacks, []),
+      loot: P(r.loot, []), note: r.note,
     })),
   });
 }));
@@ -835,11 +1014,13 @@ app.post('/api/campaigns/:id/presets', auth, requireMember, requireDM, wrap(asyn
 
   const id = uid();
   await run(
-    `INSERT INTO enemy_presets (id, campaign_id, name, cr, hp, ac, init_bonus, speed, attacks, note, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    `INSERT INTO enemy_presets (id, campaign_id, name, cr, hp, ac, init_bonus, speed, attacks, loot, note, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [id, req.campaignId, name.slice(0, 50), String(b.cr || ''), Number(b.hp) || 10, Number(b.ac) || 12,
       Number(b.initBonus) || 0, Number(b.speed) || 30,
-      J(Array.isArray(b.attacks) ? b.attacks.slice(0, 8) : []), String(b.note || '').slice(0, 300), now()],
+      J(Array.isArray(b.attacks) ? b.attacks.slice(0, 8) : []),
+      J(Array.isArray(b.loot) ? b.loot.slice(0, 12) : []),
+      String(b.note || '').slice(0, 300), now()],
   );
   emit(req.campaignId, 'presets', null); // tells clients to refetch the library
   res.json({ id });
