@@ -8,8 +8,15 @@ import * as cookie from 'cookie';
 import { Server as SocketServer } from 'socket.io';
 
 import { all, get, run, uid, now, migrate } from './db.js';
-import { roll, describe, attackRoll, damageRoll } from './dice.js';
-import { SPELLS, CONDITIONS, CLASSES, RACES, SKILLS, DEFAULT_SLOTS, MONSTERS } from './srd.js';
+import { roll, describe } from './dice.js';
+import {
+  resolveAttack, resolveSpell, tickConditions, normaliseConditions,
+  addCondition, removeCondition, findAction, spellStats,
+} from './combat.js';
+import {
+  SPELLS, CONDITIONS, CLASSES, RACES, SKILLS, DEFAULT_SLOTS, MONSTERS,
+  SPELL_EFFECTS, COMBAT_ACTIONS, CONDITION_LOOK,
+} from './srd.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = process.env.PORT || 3000;
@@ -127,6 +134,7 @@ function shapeCharacter(row, items = []) {
     coins: P(row.coins, {}),
     conditions: P(row.conditions, []),
     attacks: P(row.attacks, []),
+    spellAbility: row.spell_ability || 'wis',
     notes: row.notes,
     portrait: row.portrait,
     items: items.map((i) => ({
@@ -155,6 +163,7 @@ async function loadCombat(campaignId) {
     turnIndex: row.turn_index,
     name: row.name,
     combatants: P(row.combatants, []),
+    turnStartedAt: Number(row.turn_started_at) || 0,
   };
 }
 
@@ -349,7 +358,7 @@ app.delete('/api/campaigns/:id/members/:userId', auth, requireMember, requireDM,
 const CHAR_FIELDS = {
   name: 'name', race: 'race', class: 'class', level: 'level', hp: 'hp', maxHp: 'max_hp',
   tempHp: 'temp_hp', ac: 'ac', speed: 'speed', initBonus: 'init_bonus', profBonus: 'prof_bonus',
-  notes: 'notes', portrait: 'portrait',
+  notes: 'notes', portrait: 'portrait', spellAbility: 'spell_ability',
 };
 const CHAR_JSON = {
   stats: 'stats', slots: 'slots', spells: 'spells', coins: 'coins',
@@ -588,8 +597,9 @@ app.put('/api/campaigns/:id/combat', auth, requireMember, requireDM, wrap(async 
 /** Write the combat state straight back, without going through the DM-only route. */
 async function persistCombat(campaignId, combat) {
   await run(
-    'UPDATE combat SET active = ?, round = ?, turn_index = ?, name = ?, combatants = ?, updated_at = ? WHERE campaign_id = ?',
-    [combat.active ? 1 : 0, combat.round, combat.turnIndex, combat.name, J(combat.combatants), now(), campaignId],
+    'UPDATE combat SET active = ?, round = ?, turn_index = ?, name = ?, combatants = ?, turn_started_at = ?, updated_at = ? WHERE campaign_id = ?',
+    [combat.active ? 1 : 0, combat.round, combat.turnIndex, combat.name, J(combat.combatants),
+      combat.turnStartedAt || now(), now(), campaignId],
   );
   emit(campaignId, 'combat', await loadCombat(campaignId));
 }
@@ -726,15 +736,199 @@ app.post('/api/campaigns/:id/combat/next-turn', auth, requireMember, wrap(async 
     throw bad('Only the DM or whoever’s turn it is can end this turn', 403);
   }
 
+  // The finished turn is when this creature's conditions tick down.
+  const expired = tickConditions(current);
+
   const next = combat.turnIndex + 1;
   combat.turnIndex = next % n;
   if (next >= n) combat.round += 1;
+  combat.turnStartedAt = now();
 
   await persistCombat(req.campaignId, combat);
+
   const up = combat.combatants[combat.turnIndex];
   if (next >= n) await logCombat(req.campaignId, req.user.id, `— Round ${combat.round} —`);
-  await logCombat(req.campaignId, req.user.id, `${up.name} is up.`);
-  res.json({ turnIndex: combat.turnIndex, round: combat.round });
+  if (expired.length) {
+    await logCombat(req.campaignId, req.user.id,
+      `${current.name} is no longer ${expired.join(', ')}.`);
+  }
+  await logCombat(req.campaignId, req.user.id,
+    `${up.name} is up.${req.body.skipped ? ' (skipped)' : ''}`);
+
+  res.json({ turnIndex: combat.turnIndex, round: combat.round, expired });
+}));
+
+/** Fold curly quotes and case so spell names compare reliably. */
+const spellKey = (name) => String(name || '').toLowerCase().replace(/[’‘`´]/g, "'").trim();
+
+/** Push an animation to everyone watching. */
+const sendFx = (campaignId, fx) => io.to(`c:${campaignId}`).emit('fx', fx);
+
+/** Apply damage to a combatant and keep a player character's sheet in step. */
+async function applyHp(campaignId, combatant, delta) {
+  combatant.hp = Math.max(0, Math.min(combatant.maxHp, combatant.hp + delta));
+  if (combatant.charId) {
+    await run('UPDATE characters SET hp = ? WHERE id = ?', [combatant.hp, combatant.charId]);
+  }
+  return combatant.hp;
+}
+
+/**
+ * Take a tactical action: the attack styles, the defensive stances, and the
+ * free-form ones the DM adjudicates.
+ */
+app.post('/api/campaigns/:id/combat/action', auth, requireMember, wrap(async (req, res) => {
+  const combat = await loadCombat(req.campaignId);
+  const characters = await loadCharacters(req.campaignId);
+
+  const actor = combat.combatants.find((c) => c.id === req.body.actorId);
+  if (!actor) throw bad('You are not in this fight', 404);
+  if (!canControl(actor, req.membership, req.user.id, characters)) throw bad('Not your character', 403);
+
+  const action = findAction(String(req.body.actionId || ''));
+  if (!action) throw bad('Unknown action');
+
+  const target = req.body.targetId
+    ? combat.combatants.find((c) => c.id === req.body.targetId)
+    : null;
+  if (action.needsTarget && !target) throw bad('Pick a target first');
+
+  let line;
+  let fx = { type: action.fx || 'none', actorId: actor.id, targetId: target?.id, label: action.name };
+
+  if (action.id === 'quick' || action.id === 'power') {
+    const sheet = actor.charId ? characters.find((c) => c.id === actor.charId) : null;
+    const available = sheet?.attacks?.length ? sheet.attacks : (actor.attacks || []);
+    const attack = available[Number(req.body.index) || 0];
+    if (!attack) throw bad('That character has no attacks yet');
+
+    const result = resolveAttack({ attacker: actor, target, attack, action, mode: req.body.mode });
+
+    if (result.hit) {
+      await applyHp(req.campaignId, target, -result.damage);
+      line = `${actor.name} — ${action.name} — ${result.hitRoll.crit ? 'CRITS' : 'hits'} ${target.name} `
+        + `(${result.hitRoll.total} vs AC ${target.ac}) for ${result.damage} damage. `
+        + `${target.name}: ${target.hp}/${target.maxHp} HP${target.hp === 0 ? ' — down!' : ''}`;
+    } else {
+      line = `${actor.name} — ${action.name} — misses ${target.name} `
+        + `(${result.hitRoll.fumble ? 'natural 1' : `${result.hitRoll.total} vs AC ${target.ac}`}).`;
+    }
+    if (result.notes.length) line += ` [${result.notes.join(', ')}]`;
+    fx = { ...fx, type: result.fx, damage: result.damage, crit: result.hitRoll.crit, hit: result.hit };
+  } else if (action.self) {
+    addCondition(actor, action.self.condition, action.self.turns);
+    line = `${actor.name} takes the ${action.name} — ${action.blurb}`;
+  } else if (action.applies && target) {
+    addCondition(target, action.applies.condition, action.applies.turns);
+    line = `${actor.name} helps ${target.name} — their next attack has advantage.`;
+  } else if (action.freeText) {
+    const what = String(req.body.text || '').slice(0, 200).trim();
+    line = `${actor.name} — ${action.name}${what ? `: ${what}` : ''}`;
+  } else {
+    line = `${actor.name} takes the ${action.name}.`;
+  }
+
+  await persistCombat(req.campaignId, combat);
+  emit(req.campaignId, 'characters', await loadCharacters(req.campaignId));
+  sendFx(req.campaignId, fx);
+  await logCombat(req.campaignId, req.user.id, line);
+
+  res.json({ ok: true, line, fx });
+}));
+
+/** Cast a known spell, spending the slot and applying whatever it does. */
+app.post('/api/campaigns/:id/combat/cast', auth, requireMember, wrap(async (req, res) => {
+  const combat = await loadCombat(req.campaignId);
+  const characters = await loadCharacters(req.campaignId);
+
+  const caster = combat.combatants.find((c) => c.id === req.body.casterId);
+  if (!caster) throw bad('You are not in this fight', 404);
+  if (!canControl(caster, req.membership, req.user.id, characters)) throw bad('Not your character', 403);
+
+  const sheet = caster.charId ? characters.find((c) => c.id === caster.charId) : null;
+  if (!sheet) throw bad('Only player characters cast from a spell list');
+
+  // Several spell names carry a typographic apostrophe (Hunter’s Mark), so match
+  // on a normalised key rather than exact bytes.
+  const wanted = spellKey(req.body.spellName);
+  const spell = SPELLS.find((s) => spellKey(s.name) === wanted);
+  if (!spell) throw bad('Unknown spell');
+  if (!sheet.spells.some((n) => spellKey(n) === wanted)) {
+    throw bad(`${sheet.name} does not know ${spell.name}`);
+  }
+
+  const effectKey = Object.keys(SPELL_EFFECTS).find((k) => spellKey(k) === wanted);
+  const effect = SPELL_EFFECTS[effectKey] || { kind: 'utility', fx: 'arcane' };
+  const slotLevel = Math.max(spell.level, Number(req.body.slotLevel) || spell.level);
+
+  // Cantrips are free; levelled spells burn a slot of at least their own level.
+  if (spell.level > 0) {
+    const slots = { ...sheet.slots };
+    const raw = slots[slotLevel];
+    const slot = typeof raw === 'object' ? { ...raw } : { max: raw || 0, used: 0 };
+    if (slot.max - slot.used <= 0) throw bad(`No level ${slotLevel} slots left`);
+    slot.used += 1;
+    slots[slotLevel] = slot;
+    await run('UPDATE characters SET slots = ? WHERE id = ?', [J(slots), sheet.id]);
+  }
+
+  const target = req.body.targetId
+    ? combat.combatants.find((c) => c.id === req.body.targetId)
+    : caster;
+
+  const result = resolveSpell({ spell, effect, caster, casterSheet: sheet, target, slotLevel });
+
+  if (result.damage && target) await applyHp(req.campaignId, target, -result.damage);
+  if (result.heal && target) await applyHp(req.campaignId, target, result.heal);
+
+  for (const c of result.conditions) {
+    const on = c.on === 'caster' ? caster : target;
+    if (on) addCondition(on, c.name, c.turns, { bonus: c.bonus, by: c.by, ac: c.ac });
+  }
+  if (effect.clears && target) {
+    for (const name of ['Poisoned', 'Paralyzed', 'Blinded', 'Deafened']) removeCondition(target, name);
+  }
+
+  const bits = [`${sheet.name} casts ${spell.name}${slotLevel > spell.level ? ` at level ${slotLevel}` : ''}`];
+  if (target && target.id !== caster.id) bits.push(`on ${target.name}`);
+  if (result.lines.length) bits.push(`— ${result.lines.join('; ')}`);
+  if (result.damage) bits.push(`(${target?.name}: ${target?.hp}/${target?.maxHp} HP${target?.hp === 0 ? ' — down!' : ''})`);
+  if (result.heal) bits.push(`(${target?.name}: ${target?.hp}/${target?.maxHp} HP)`);
+
+  await persistCombat(req.campaignId, combat);
+  emit(req.campaignId, 'characters', await loadCharacters(req.campaignId));
+  sendFx(req.campaignId, {
+    type: result.fx, spell: spell.name, actorId: caster.id, targetId: target?.id,
+    damage: result.damage, heal: result.heal, label: spell.name,
+  });
+  await logCombat(req.campaignId, req.user.id, bits.join(' '));
+
+  res.json({ ok: true, ...result });
+}));
+
+/** The DM hangs a condition on someone for a set number of turns. */
+app.post('/api/campaigns/:id/combat/condition', auth, requireMember, requireDM, wrap(async (req, res) => {
+  const combat = await loadCombat(req.campaignId);
+  const target = combat.combatants.find((c) => c.id === req.body.combatantId);
+  if (!target) throw bad('Not in this fight', 404);
+
+  const name = String(req.body.name || '').slice(0, 30);
+  if (!name) throw bad('Pick a condition');
+
+  if (req.body.remove) {
+    removeCondition(target, name);
+    await logCombat(req.campaignId, req.user.id, `${target.name} is no longer ${name}.`);
+  } else {
+    const turns = req.body.turns === null || req.body.turns === undefined || req.body.turns === ''
+      ? null
+      : Math.max(1, Math.min(99, Number(req.body.turns)));
+    addCondition(target, name, turns);
+    await logCombat(req.campaignId, req.user.id,
+      `${target.name} is ${name}${turns ? ` for ${turns} turn${turns === 1 ? '' : 's'}` : ''}.`);
+  }
+
+  await persistCombat(req.campaignId, combat);
+  res.json({ ok: true });
 }));
 
 // ---------------------------------------------------------------- codex
@@ -1038,6 +1232,7 @@ app.get('/api/srd', (req, res) => {
   res.json({
     spells: SPELLS, conditions: CONDITIONS, classes: CLASSES,
     races: RACES, skills: SKILLS, monsters: MONSTERS,
+    spellEffects: SPELL_EFFECTS, actions: COMBAT_ACTIONS, conditionLook: CONDITION_LOOK,
   });
 });
 

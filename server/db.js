@@ -239,6 +239,9 @@ export async function migrate() {
   // Added after the first release — existing campaigns need it backfilled.
   await addColumn('characters', 'attacks', `TEXT DEFAULT '[]'`);
   await run(`UPDATE characters SET attacks = '[]' WHERE attacks IS NULL`);
+  await addColumn('characters', 'spell_ability', `TEXT DEFAULT 'wis'`);
+  await run(`UPDATE characters SET spell_ability = 'wis' WHERE spell_ability IS NULL`);
+  await addColumn('combat', 'turn_started_at', 'BIGINT DEFAULT 0');
   await addColumn('enemy_presets', 'loot', `TEXT DEFAULT '[]'`);
   await run(`UPDATE enemy_presets SET loot = '[]' WHERE loot IS NULL`);
 

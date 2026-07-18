@@ -33,6 +33,15 @@ bindEvents(root, render);
   }
 })();
 
+// Drive the DM's turn timer. Only ticks while a fight is on screen, so the rest
+// of the app is never re-rendered underneath someone who is typing.
+setInterval(() => {
+  if (!state.campaign || state.page !== 'combat' || !state.combat.active) return;
+  if (document.hidden) return;
+  state.clock = Date.now();
+  render();
+}, 1000);
+
 // Re-sync after the phone wakes up or the tab regains focus.
 document.addEventListener('visibilitychange', () => {
   if (document.visibilityState === 'visible' && state.campaign) joinSocket(state.campaign.id);

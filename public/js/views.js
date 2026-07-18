@@ -213,47 +213,40 @@ export function shellView() {
   ${state.modal ? modalView() : ''}`;
 }
 
-/** Full-screen "it's your turn" takeover, with the attacks right there. */
+/** Full-screen turn takeover: action cards, weapons and spells all in one place. */
 function turnAlertView() {
   const c = state.turnAlert;
   const sheet = c.charId ? state.characters.find((x) => x.id === c.charId) : null;
-  const attacks = sheet?.attacks?.length ? sheet.attacks : (c.attacks || []);
-  const enemies = state.combat.combatants.filter((x) => x.id !== c.id && x.hp > 0);
+  const playerName = sheet ? nameOf(sheet.ownerId) : c.name;
+  const tab = state.turnTab || 'actions';
 
   return `
   <div class="turn-alert">
     <div class="turn-card">
       <div class="turn-flash">Round ${state.combat.round}</div>
-      <h1>IT’S YOUR TURN<br />TO ATTACK</h1>
-      <div class="row" style="justify-content:center;margin:16px 0">
+      <h1>${esc(playerName.toUpperCase())},<br />IT’S YOUR TURN!</h1>
+
+      <div class="row" style="justify-content:center;margin:14px 0 10px">
         ${avatar(c.name, 'xl', portraitOf(c))}
       </div>
-      <h2 style="font-size:22px">${esc(c.name)}</h2>
-      <p class="muted" style="margin-top:4px">${c.hp}/${c.maxHp} HP · AC ${c.ac}</p>
+      <h2 style="font-size:20px">${esc(c.name)}</h2>
+      <p class="muted" style="margin-top:3px">${c.hp}/${c.maxHp} HP · AC ${c.ac}</p>
+      ${conditionChips(c, false)}
 
-      ${attacks.length && enemies.length ? `
-        <p class="tiny" style="margin:16px 0 8px">ATTACK SOMEONE</p>
-        <div class="stack">
-          ${attacks.slice(0, 4).map((a, ai) => `
-            <div class="card" style="padding:10px">
-              <div style="font-weight:650;font-size:14px;margin-bottom:7px">
-                ${icon('sword', { size: 14 })} ${esc(a.name)}
-                <span class="tiny mono">${signed(a.toHit)} · ${esc(a.damage)}</span>
-              </div>
-              <div class="row">
-                ${enemies.slice(0, 6).map((e) => `
-                  <button class="btn sm" data-act="turn-attack"
-                    data-attacker="${c.id}" data-target="${e.id}" data-index="${ai}">
-                    ${esc(e.name)} <span class="tiny">${e.hp}hp</span>
-                  </button>`).join('')}
-              </div>
-            </div>`).join('')}
-        </div>`
-      : `<p class="muted" style="margin-top:16px">
-          ${attacks.length ? 'Nothing left to attack.' : 'No attacks on your sheet yet — add one on your character.'}
-        </p>`}
+      <div class="row" style="justify-content:center;margin:14px 0 10px">
+        ${[['actions', 'Actions', 'swords'], ['attacks', 'Attack', 'sword'], ['spells', 'Spells', 'sparkles']]
+          .map(([id, label, ic]) => `
+            <button class="pill ${tab === id ? 'on' : ''}" data-act="turn-tab" data-tab="${id}">
+              ${icon(ic, { size: 13 })} ${label}</button>`).join('')}
+      </div>
 
-      <div class="row" style="margin-top:18px">
+      <div class="turn-body">
+        ${tab === 'actions' ? actionCards(c)
+          : tab === 'attacks' ? attackCards(c, sheet)
+            : spellCards(c, sheet)}
+      </div>
+
+      <div class="row" style="margin-top:16px">
         <button class="btn grow" data-act="dismiss-turn">Close</button>
         <button class="btn primary grow" data-act="end-my-turn">
           End my turn ${icon('arrowRight', { size: 15 })}</button>
@@ -261,6 +254,149 @@ function turnAlertView() {
     </div>
   </div>`;
 }
+
+const livingFoes = (me) => state.combat.combatants.filter((x) => x.id !== me.id && x.hp > 0 && x.type === 'enemy');
+const livingAllies = (me) => state.combat.combatants.filter((x) => x.id !== me.id && x.hp > 0 && x.type !== 'enemy');
+
+/** The tactical action cards everyone gets. */
+function actionCards(c) {
+  const actions = state.srd.actions || [];
+  return `<div class="action-grid">
+    ${actions.map((a) => `
+      <button class="action-card" data-act="pick-action" data-id="${a.id}" data-actor="${c.id}">
+        <span class="action-ic">${icon(a.icon, { size: 20 })}</span>
+        <span class="action-name">${esc(a.name)}</span>
+        <span class="action-blurb">${esc(a.blurb)}</span>
+      </button>`).join('')}
+  </div>`;
+}
+
+/** Weapon attacks — pick the weapon, then the target. */
+function attackCards(c, sheet) {
+  const attacks = sheet?.attacks?.length ? sheet.attacks : (c.attacks || []);
+  const foes = livingFoes(c);
+  if (!attacks.length) return '<p class="muted">No attacks on your sheet yet — add one on your character page.</p>';
+  if (!foes.length) return '<p class="muted">Nothing left standing to attack.</p>';
+
+  return `<div class="stack">
+    ${attacks.slice(0, 5).map((a, ai) => `
+      <div class="card" style="padding:10px">
+        <div style="font-weight:650;font-size:14px;margin-bottom:7px">
+          ${icon('sword', { size: 14 })} ${esc(a.name)}
+          <span class="tiny mono">${signed(a.toHit)} · ${esc(a.damage)}</span>
+        </div>
+        <div class="row">
+          ${foes.map((e) => `
+            <button class="btn sm" data-act="turn-attack"
+              data-attacker="${c.id}" data-target="${e.id}" data-index="${ai}">
+              ${esc(e.name)} <span class="tiny">${e.hp}hp</span>
+            </button>`).join('')}
+        </div>
+      </div>`).join('')}
+  </div>`;
+}
+
+/** Known spells, with slot counts and the right targets for each. */
+function spellCards(c, sheet) {
+  if (!sheet) return '<p class="muted">Only player characters cast spells here.</p>';
+  const known = (sheet.spells || [])
+    .map((name) => state.srd.spells.find((s) => s.name === name))
+    .filter(Boolean)
+    .sort((a, b) => a.level - b.level);
+
+  if (!known.length) {
+    return '<p class="muted">No spells known yet — star some on the Spells page.</p>';
+  }
+
+  const effects = state.srd.spellEffects || {};
+  const slotsLeft = (lvl) => {
+    const raw = sheet.slots?.[lvl];
+    const s = typeof raw === 'object' ? raw : { max: raw || 0, used: 0 };
+    return (s.max || 0) - (s.used || 0);
+  };
+
+  return `<div class="stack">
+    ${known.map((spell) => {
+      const fx = effects[spell.name];
+      const left = spell.level === 0 ? Infinity : slotsLeft(spell.level);
+      const out = left <= 0;
+      // Healing and buffs go on friends; everything else on enemies.
+      const helpful = fx && ['heal', 'buff'].includes(fx.kind) && fx.target !== 'enemy';
+      const targets = helpful ? [c, ...livingAllies(c)] : livingFoes(c);
+      const selfOnly = !fx || fx.kind === 'utility';
+
+      return `
+      <div class="card spell-card ${out ? 'spent' : ''}" style="padding:10px">
+        <div class="spread">
+          <div>
+            <span style="font-weight:650;font-size:14px">${esc(spell.name)}</span>
+            <span class="tag grey">${spell.level === 0 ? 'Cantrip' : `Lv ${spell.level}`}</span>
+            ${fx?.bonusAction ? '<span class="tag">Bonus</span>' : ''}
+            ${fx?.concentration ? '<span class="tag grey">Conc.</span>' : ''}
+          </div>
+          <span class="tiny">${spell.level === 0 ? 'at will' : `${Math.max(0, left)} slot${left === 1 ? '' : 's'}`}</span>
+        </div>
+        <div class="tiny" style="margin:4px 0 7px">
+          ${fx ? spellSummary(fx) : 'Roleplay effect — the DM decides what happens.'}
+        </div>
+        ${out ? '<span class="tiny">No slots left.</span>' : `
+          <div class="row">
+            ${selfOnly
+              ? `<button class="btn sm" data-act="cast" data-caster="${c.id}" data-spell="${esc(spell.name)}">Cast</button>`
+              : targets.map((t) => `
+                  <button class="btn sm ${helpful ? '' : 'primary'}" data-act="cast"
+                    data-caster="${c.id}" data-spell="${esc(spell.name)}" data-target="${t.id}">
+                    ${t.id === c.id ? 'Myself' : esc(t.name)}
+                    ${t.id !== c.id ? `<span class="tiny">${t.hp}hp</span>` : ''}
+                  </button>`).join('') || '<span class="tiny">No valid targets.</span>'}
+          </div>`}
+      </div>`;
+    }).join('')}
+  </div>`;
+}
+
+/** One-line mechanical summary of a spell effect. */
+function spellSummary(fx) {
+  switch (fx.kind) {
+    case 'attack': return `Spell attack · ${fx.damage} ${fx.type}${fx.rays > 1 ? ` × ${fx.rays}` : ''}`;
+    case 'save': return `${fx.save.toUpperCase()} save · ${fx.damage ? `${fx.damage} ${fx.type}` : fx.condition}${fx.half ? ' (half on save)' : ''}`;
+    case 'auto': return `Always hits · ${fx.damage} ${fx.type}`;
+    case 'heal': return `Heals ${fx.heal}${fx.addMod ? ' + your modifier' : ''}`;
+    case 'mark': return `Marks a target · +${fx.bonus} damage on your hits`;
+    case 'buff': return `Applies ${fx.condition}`;
+    default: return 'The DM decides the effect.';
+  }
+}
+
+on('turn-tab', (el) => { state.turnTab = el.dataset.tab; render(); });
+
+on('pick-action', async (el) => {
+  const action = (state.srd.actions || []).find((a) => a.id === el.dataset.id);
+  if (!action) return;
+
+  // Actions that need a target or a description get a small follow-up.
+  if (action.needsTarget || action.freeText) {
+    state.pendingAction = { actionId: action.id, actorId: el.dataset.actor };
+    state.modal = { name: 'action-target' };
+    return render();
+  }
+
+  await api('POST', `/api/campaigns/${state.campaign.id}/combat/action`, {
+    actorId: el.dataset.actor, actionId: action.id,
+  });
+  toast(action.name);
+});
+
+on('cast', async (el) => {
+  const r = await api('POST', `/api/campaigns/${state.campaign.id}/combat/cast`, {
+    casterId: el.dataset.caster,
+    spellName: el.dataset.spell,
+    targetId: el.dataset.target || undefined,
+  });
+  toast(r.damage ? `${el.dataset.spell}: ${r.damage} damage`
+    : r.heal ? `${el.dataset.spell}: healed ${r.heal}`
+      : `${el.dataset.spell} cast`);
+});
 
 on('dismiss-turn', () => { state.turnAlert = null; render(); });
 
@@ -822,6 +958,8 @@ function combatView() {
     </div>` : ''}
   </div>
 
+  ${whoseTurnBanner()}
+
   ${attacker ? `<div class="card" style="border-color:var(--accent);margin-bottom:14px">
     <div class="spread">
       <div>${icon('target', { size: 16 })} <strong>${esc(attacker.name)}</strong> —
@@ -845,6 +983,81 @@ function combatView() {
     </div>
   </div>`;
 }
+
+/**
+ * Whose turn it is, from the viewer's point of view: your own call to arms,
+ * "waiting for Parker" for everyone else, plus a timer and Skip for the DM.
+ */
+function whoseTurnBanner() {
+  const { active, combatants, turnIndex, turnStartedAt } = state.combat;
+  if (!active || !combatants.length) return '';
+
+  const current = combatants[turnIndex % combatants.length];
+  if (!current) return '';
+
+  const sheet = current.charId ? state.characters.find((c) => c.id === current.charId) : null;
+  const player = sheet ? nameOf(sheet.ownerId) : null;
+  const mine = sheet && sheet.ownerId === state.user.id;
+
+  const secs = turnStartedAt ? Math.floor((state.clock - turnStartedAt) / 1000) : 0;
+  const slow = secs > 90;
+  const timer = `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')}`;
+
+  return `
+  <div class="turn-banner ${mine ? 'mine' : ''}">
+    ${avatar(current.name, '', portraitOf(current))}
+    <div class="grow">
+      <strong>${mine
+        ? 'Your turn!'
+        : player ? `Waiting for ${esc(player)}…` : `${esc(current.name)}’s turn`}</strong>
+      <div class="tiny">${esc(current.name)} · round ${state.combat.round}</div>
+    </div>
+    ${mine ? `<button class="btn sm primary" data-act="open-turn">Take my turn</button>` : ''}
+    ${isDM() ? `
+      <span class="turn-timer ${slow ? 'slow' : ''}" title="Time on this turn">
+        ${icon('hourglass', { size: 13 })} ${timer}</span>
+      <button class="btn sm" data-act="skip-turn">Skip</button>` : ''}
+  </div>`;
+}
+
+on('open-turn', () => {
+  const { combatants, turnIndex } = state.combat;
+  state.turnAlert = combatants[turnIndex % combatants.length];
+  render();
+});
+
+on('skip-turn', async () => {
+  await api('POST', `/api/campaigns/${state.campaign.id}/combat/next-turn`, { skipped: true });
+  toast('Turn skipped');
+});
+
+/** Conditions as coloured icon chips, showing how many turns are left. */
+function conditionChips(combatant, dm) {
+  const list = (combatant.conditions || [])
+    .map((c) => (typeof c === 'string' ? { name: c, turns: null } : c))
+    .filter((c) => c && c.name);
+  if (!list.length) return '';
+
+  const look = state.srd.conditionLook || {};
+  return `<div class="row cond-row">
+    ${list.map((c) => {
+      const l = look[c.name] || { icon: 'zap', tint: '#c0392b' };
+      return `<span class="cond" style="--tint:${l.tint}" title="${esc(c.name)}"
+        ${dm ? `data-act="cond-remove" data-id="${combatant.id}" data-name="${esc(c.name)}"` : ''}>
+        ${icon(l.icon, { size: 12 })}<span>${esc(c.name)}</span>
+        ${c.turns ? `<b>${c.turns}</b>` : ''}
+      </span>`;
+    }).join('')}
+    ${dm ? `<button class="cond cond-add" data-act="modal" data-name="add-cond" data-id="${combatant.id}">
+      ${icon('plus', { size: 12 })}</button>` : ''}
+  </div>`;
+}
+
+on('cond-remove', async (el) => {
+  await api('POST', `/api/campaigns/${state.campaign.id}/combat/condition`, {
+    combatantId: el.dataset.id, name: el.dataset.name, remove: true,
+  });
+});
 
 /** Name of a combatant's nth attack, preferring their live character sheet. */
 function attackNameOf(combatant, index) {
@@ -877,8 +1090,7 @@ function initRow(c, i, turnIndex, dm) {
         <span class="tiny">${c.hp}/${c.maxHp} HP · AC ${c.ac}</span>
       </div>
       ${hpBar(c.hp, c.maxHp)}
-      ${(c.conditions || []).length ? `<div class="row" style="margin-top:5px">
-        ${c.conditions.map((n) => `<span class="tag red">${esc(n)}</span>`).join('')}</div>` : ''}
+      ${conditionChips(c, dm)}
 
       ${needsInit && canAct ? `
         <button class="btn sm" style="margin-top:6px" data-act="roll-init-one" data-id="${c.id}">
@@ -1486,6 +1698,8 @@ function modalBody(name) {
     case 'add-enemy': return enemyModal();
     case 'new-attack': return attackModal();
     case 'loot': return lootModal();
+    case 'add-cond': return addConditionModal();
+    case 'action-target': return actionTargetModal();
     case 'new-entry': return entryModal(null);
     case 'edit-entry': return entryModal(state.entries.find((e) => e.id === state.modal.id));
     case 'conditions': return conditionsModal();
@@ -1866,6 +2080,99 @@ on('toggle-c-cond', (el) => {
     return { ...c, conditions: list.includes(name) ? list.filter((x) => x !== name) : [...list, name] };
   });
   return saveCombat({ combatants });
+});
+
+/** DM: hang a condition on someone for N turns. */
+function addConditionModal() {
+  const target = state.combat.combatants.find((c) => c.id === state.modal.id);
+  if (!target) return '<p class="muted">Gone.</p>';
+  const look = state.srd.conditionLook || {};
+
+  return `
+  <h2>Condition — ${esc(target.name)}</h2>
+  <form data-act="save-cond" data-id="${target.id}">
+    <p class="tiny" style="margin-bottom:8px">PICK ONE</p>
+    <div class="row" style="margin-bottom:14px">
+      ${Object.keys(look).map((name, i) => `
+        <label class="pill cond-pick">
+          <input type="radio" name="cond" value="${esc(name)}" ${i === 0 ? 'checked' : ''} hidden />
+          <span style="--tint:${look[name].tint}">${icon(look[name].icon, { size: 13 })} ${esc(name)}</span>
+        </label>`).join('')}
+    </div>
+
+    <label class="field"><span>How many turns? (blank = until removed)</span>
+      <input name="turns" type="number" min="1" max="99" placeholder="e.g. 3" /></label>
+    <p class="tiny" style="margin-bottom:14px">
+      It counts down at the end of their turn and clears itself.
+    </p>
+
+    <div class="row">
+      <button class="btn" type="button" data-act="close-modal">Cancel</button>
+      <button class="btn primary grow" type="submit">Apply</button>
+    </div>
+  </form>`;
+}
+
+on('save-cond', async (form) => {
+  const name = form.querySelector('[name="cond"]:checked')?.value;
+  const turns = val(form, 'turns');
+  await api('POST', `/api/campaigns/${state.campaign.id}/combat/condition`, {
+    combatantId: form.dataset.id, name, turns: turns === '' ? null : Number(turns),
+  });
+  state.modal = null;
+  render();
+});
+
+/** Follow-up for actions that need a target or a description. */
+function actionTargetModal() {
+  const p = state.pendingAction;
+  const action = (state.srd.actions || []).find((a) => a.id === p?.actionId);
+  const actor = state.combat.combatants.find((c) => c.id === p?.actorId);
+  if (!action || !actor) return '<p class="muted">Pick an action again.</p>';
+
+  const targets = action.targetAlly ? livingAllies(actor) : livingFoes(actor);
+
+  return `
+  <h2>${esc(action.name)}</h2>
+  <p class="muted" style="margin-bottom:14px">${esc(action.blurb)}</p>
+
+  ${action.freeText ? `
+    <form data-act="run-action">
+      <label class="field"><span>What are you doing?</span>
+        <input name="text" data-keep="atx" placeholder="Kick the barrel down the stairs" /></label>
+      <div class="row">
+        <button class="btn" type="button" data-act="close-modal">Cancel</button>
+        <button class="btn primary grow" type="submit">Do it</button>
+      </div>
+    </form>`
+  : `
+    <p class="tiny" style="margin-bottom:8px">PICK A TARGET</p>
+    <div class="stack">
+      ${targets.map((t) => `
+        <button class="card spread" style="cursor:pointer;text-align:left"
+          data-act="run-action" data-target="${t.id}">
+          <div class="row">${avatar(t.name, '', portraitOf(t))}
+            <div><div style="font-weight:650;font-size:14px">${esc(t.name)}</div>
+            <div class="tiny">${t.hp}/${t.maxHp} HP · AC ${t.ac}</div></div>
+          </div>
+          ${icon('arrowRight', { size: 16 })}
+        </button>`).join('') || '<p class="muted">Nobody to target.</p>'}
+    </div>
+    <button class="btn wide" style="margin-top:14px" data-act="close-modal">Cancel</button>`}`;
+}
+
+on('run-action', async (el) => {
+  const p = state.pendingAction;
+  if (!p) return;
+  const text = el.tagName === 'FORM' ? val(el, 'text') : '';
+
+  state.modal = null;
+  state.pendingAction = null;
+  render();
+
+  await api('POST', `/api/campaigns/${state.campaign.id}/combat/action`, {
+    actorId: p.actorId, actionId: p.actionId, targetId: el.dataset.target, text,
+  });
 });
 
 function lootModal() {

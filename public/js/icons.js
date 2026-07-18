@@ -51,6 +51,14 @@ const PATHS = {
   gem: '<path d="m12 3 8 6-8 12L4 9Z"/><path d="M4 9h16"/><path d="m12 3-4 6 4 12 4-12Z"/>',
   scroll: '<path d="M7 4h10a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2Z"/><path d="M9 9h6"/><path d="M9 13h6"/><path d="M9 17h3"/>',
   shop: '<path d="M4 9h16v10a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2Z"/><path d="M3 9 5 4h14l2 5"/><path d="M9 21v-6h6v6"/>',
+
+  // conditions
+  fire: '<path d="M12 21a6 6 0 0 0 6-6c0-4-3-5.5-3-9 0 0-3 1.5-3 5 0-2-1.5-3-1.5-3S6 10 6 15a6 6 0 0 0 6 6Z"/>',
+  zap: '<path d="M13 2 4 14h7l-1 8 9-12h-7Z"/>',
+  eyeOff: '<path d="M4 4l16 16"/><path d="M10.6 6.3A8.7 8.7 0 0 1 12 6c5 0 9 6 9 6a15 15 0 0 1-3 3.4"/><path d="M6.2 8.6A15 15 0 0 0 3 12s4 6 9 6a8.5 8.5 0 0 0 3.4-.7"/><path d="M9.9 9.9a3 3 0 0 0 4.2 4.2"/>',
+  brain: '<path d="M9.5 4a2.5 2.5 0 0 0-2.4 3.2A2.5 2.5 0 0 0 5 12a2.5 2.5 0 0 0 1.6 4.7A2.5 2.5 0 0 0 12 19V5.5A1.5 1.5 0 0 0 10.5 4Z"/><path d="M14.5 4a2.5 2.5 0 0 1 2.4 3.2A2.5 2.5 0 0 1 19 12a2.5 2.5 0 0 1-1.6 4.7A2.5 2.5 0 0 1 12 19"/>',
+  arrowDown: '<path d="M12 5v14"/><path d="m6 13 6 6 6-6"/>',
+  link: '<path d="M10 13a5 5 0 0 0 7 0l2-2a5 5 0 0 0-7-7l-1 1"/><path d="M14 11a5 5 0 0 0-7 0l-2 2a5 5 0 0 0 7 7l1-1"/>',
 };
 
 /** Category -> icon + tint, used for the placeholder art on inventory items. */

@@ -102,6 +102,133 @@ export const SPELLS = [
   s('Summon Fey', 3, 'Conjuration', '1 action', '90 ft', 'V, S, M', 'Conc. 1 hour', ['Druid', 'Ranger', 'Warlock', 'Wizard'], 'Summon a fey spirit — Fuming, Mirthful, or Tricksy — that fights alongside you.'),
 ];
 
+/**
+ * Mechanical effects for the spells that do something in a fight. Kept in its
+ * own map so the descriptive list above stays readable.
+ *
+ *   kind    attack | save | heal | auto | mark | buff | utility
+ *   scale   extra dice per slot level above the spell's own level
+ *   rider   an extra consequence the server applies on a hit
+ *   fx      which animation to play
+ */
+export const SPELL_EFFECTS = {
+  // cantrips
+  'Sacred Flame': { kind: 'save', save: 'dex', damage: '1d8', type: 'radiant', fx: 'radiant' },
+  'Fire Bolt': { kind: 'attack', damage: '1d10', type: 'fire', fx: 'fire' },
+  'Eldritch Blast': { kind: 'attack', damage: '1d10', type: 'force', fx: 'arcane' },
+  'Toll the Dead': { kind: 'save', save: 'wis', damage: '1d8', type: 'necrotic', fx: 'necrotic' },
+  'Vicious Mockery': { kind: 'save', save: 'wis', damage: '1d4', type: 'psychic', fx: 'arcane' },
+  'Produce Flame': { kind: 'attack', damage: '1d8', type: 'fire', fx: 'fire' },
+  'Thorn Whip': { kind: 'attack', damage: '1d6', type: 'piercing', fx: 'slash' },
+  'Ray of Frost': { kind: 'attack', damage: '1d8', type: 'cold', fx: 'cold' },
+
+  // 1st level
+  'Cure Wounds': { kind: 'heal', heal: '1d8', addMod: true, scale: '1d8', fx: 'heal' },
+  'Healing Word': { kind: 'heal', heal: '1d4', addMod: true, scale: '1d4', bonusAction: true, fx: 'heal' },
+  'Guiding Bolt': {
+    kind: 'attack', damage: '4d6', type: 'radiant', scale: '1d6',
+    rider: { condition: 'Guiding Light', turns: 1, note: 'next attack against it has advantage' },
+    fx: 'radiant',
+  },
+  'Inflict Wounds': { kind: 'attack', damage: '3d10', type: 'necrotic', scale: '1d10', fx: 'necrotic' },
+  'Magic Missile': { kind: 'auto', damage: '3d4+3', type: 'force', scale: '1d4+1', fx: 'arcane' },
+  'Burning Hands': { kind: 'save', save: 'dex', damage: '3d6', type: 'fire', scale: '1d6', half: true, fx: 'fire' },
+  'Thunderwave': { kind: 'save', save: 'con', damage: '2d8', type: 'thunder', scale: '1d8', half: true, fx: 'arcane' },
+  'Bless': { kind: 'buff', condition: 'Blessed', turns: 10, concentration: true, fx: 'holy' },
+  'Shield of Faith': { kind: 'buff', condition: 'Shielded', turns: 10, ac: 2, concentration: true, bonusAction: true, fx: 'holy' },
+  'Hunter’s Mark': {
+    kind: 'mark', condition: 'Hunter’s Mark', bonus: '1d6', turns: 10,
+    concentration: true, bonusAction: true, fx: 'mark',
+  },
+  'Faerie Fire': { kind: 'buff', target: 'enemy', condition: 'Faerie Fire', turns: 10, concentration: true, fx: 'arcane' },
+  'Sleep': { kind: 'buff', target: 'enemy', condition: 'Unconscious', turns: 10, fx: 'arcane' },
+  'Command': { kind: 'save', save: 'wis', condition: 'Commanded', turns: 1, fx: 'arcane' },
+
+  // 2nd level
+  'Spiritual Weapon': { kind: 'attack', damage: '1d8', addMod: true, type: 'force', bonusAction: true, fx: 'holy' },
+  'Scorching Ray': { kind: 'attack', damage: '2d6', type: 'fire', rays: 3, fx: 'fire' },
+  'Hold Person': { kind: 'save', save: 'wis', condition: 'Paralyzed', turns: 10, concentration: true, fx: 'arcane' },
+  'Aid': { kind: 'heal', heal: '5', flat: true, fx: 'heal' },
+  'Lesser Restoration': { kind: 'utility', clears: true, fx: 'heal' },
+  'Misty Step': { kind: 'utility', bonusAction: true, fx: 'arcane' },
+  'Summon Beast': { kind: 'utility', concentration: true, fx: 'arcane' },
+
+  // 3rd level
+  'Fireball': { kind: 'save', save: 'dex', damage: '8d6', type: 'fire', scale: '1d6', half: true, fx: 'fire' },
+  'Spirit Guardians': { kind: 'save', save: 'wis', damage: '3d8', type: 'radiant', scale: '1d8', half: true, concentration: true, fx: 'holy' },
+  'Mass Healing Word': { kind: 'heal', heal: '1d4', addMod: true, scale: '1d4', bonusAction: true, fx: 'heal' },
+  'Revivify': { kind: 'heal', heal: '1', flat: true, fx: 'holy' },
+};
+
+/**
+ * Tactical actions everyone gets, regardless of class. Modifiers are applied by
+ * the server when the attack is resolved.
+ */
+export const COMBAT_ACTIONS = [
+  {
+    id: 'quick', name: 'Quick Attack', icon: 'sword', slot: 'action', needsTarget: true,
+    blurb: 'Fast and accurate. +2 to hit, normal damage.',
+    toHit: 2, fx: 'slash',
+  },
+  {
+    id: 'power', name: 'Power Attack', icon: 'swords', slot: 'action', needsTarget: true,
+    blurb: 'Big swing. −3 to hit, but +1d8 damage.',
+    toHit: -3, bonusDamage: '1d8', fx: 'slash',
+  },
+  {
+    id: 'defend', name: 'Defensive Stance', icon: 'shield', slot: 'action',
+    blurb: 'Damage against you is halved until your next turn.',
+    self: { condition: 'Defending', turns: 1 }, fx: 'shieldUp',
+  },
+  {
+    id: 'aim', name: 'Aim', icon: 'target', slot: 'action',
+    blurb: 'Steady yourself. +3 on your next attack.',
+    self: { condition: 'Aiming', turns: 1 }, fx: 'aim',
+  },
+  {
+    id: 'help', name: 'Help Ally', icon: 'users', slot: 'action', needsTarget: true, targetAlly: true,
+    blurb: 'Their next attack has advantage.',
+    applies: { condition: 'Helped', turns: 1 }, fx: 'holy',
+  },
+  {
+    id: 'interact', name: 'Interact', icon: 'backpack', slot: 'action', freeText: true,
+    blurb: 'Push, pull, open, close, pull a lever, spring a trap.', fx: 'none',
+  },
+  {
+    id: 'environment', name: 'Use Environment', icon: 'sparkles', slot: 'action', freeText: true,
+    blurb: 'Throw a torch, drop the chandelier, kick the barrel over.', fx: 'fire',
+  },
+  {
+    id: 'dodge', name: 'Dodge', icon: 'refresh', slot: 'action',
+    blurb: 'Attacks against you have disadvantage until your next turn.',
+    self: { condition: 'Dodging', turns: 1 }, fx: 'shieldUp',
+  },
+];
+
+/** Conditions the DM can hang on someone, with the icon shown by their portrait. */
+export const CONDITION_LOOK = {
+  Poisoned: { icon: 'potion', tint: '#4a9e3f' },
+  Burning: { icon: 'fire', tint: '#e2603a' },
+  Stunned: { icon: 'zap', tint: '#e0b23a' },
+  Blessed: { icon: 'sparkles', tint: '#e8c86a' },
+  Hidden: { icon: 'eyeOff', tint: '#7a7686' },
+  Concentrating: { icon: 'brain', tint: '#8a6bff' },
+  Paralyzed: { icon: 'zap', tint: '#c0392b' },
+  Prone: { icon: 'arrowDown', tint: '#7a7686' },
+  Restrained: { icon: 'link', tint: '#a06a2c' },
+  Frightened: { icon: 'skull', tint: '#6b5b95' },
+  Defending: { icon: 'shield', tint: '#3a7bd5' },
+  Dodging: { icon: 'refresh', tint: '#3a7bd5' },
+  Aiming: { icon: 'target', tint: '#d9a441' },
+  Helped: { icon: 'users', tint: '#2e9e5b' },
+  Shielded: { icon: 'shield', tint: '#e8c86a' },
+  'Hunter’s Mark': { icon: 'target', tint: '#c0392b' },
+  'Guiding Light': { icon: 'sparkles', tint: '#e8c86a' },
+  'Faerie Fire': { icon: 'sparkles', tint: '#8a6bff' },
+  Unconscious: { icon: 'skull', tint: '#7a7686' },
+  Commanded: { icon: 'zap', tint: '#8a6bff' },
+};
+
 export const DEFAULT_SLOTS = Object.fromEntries(
   Array.from({ length: 9 }, (_, i) => [i + 1, { max: 0, used: 0 }]),
 );

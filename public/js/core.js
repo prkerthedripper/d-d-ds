@@ -1,4 +1,5 @@
 // Shared state, API client, socket wiring and the tiny render loop.
+import { playFx } from './fx.js';
 
 export const state = {
   booted: false,
@@ -15,7 +16,10 @@ export const state = {
   campaignInvites: [],
   presets: [],
   online: [],
-  srd: { spells: [], conditions: [], classes: [], races: [], skills: {}, monsters: [] },
+  srd: {
+    spells: [], conditions: [], classes: [], races: [], skills: {}, monsters: [],
+    spellEffects: {}, actions: [], conditionLook: {},
+  },
   attackFrom: null, // combatant id picking a target
   entries: [],
   codexTab: 'quest',
@@ -27,6 +31,9 @@ export const state = {
   selectedCharId: null,
   authMode: 'login',
   theme: localStorage.getItem('dndds-theme') || 'light',
+  clock: Date.now(), // ticks once a second while a fight is on screen
+  turnTab: 'actions',
+  pendingAction: null,
 };
 
 // ---------------------------------------------------------------- api
@@ -279,8 +286,8 @@ export function checkMyTurn() {
   if (key === state.lastTurnKey) return;
   state.lastTurnKey = key;
 
-  const isMine = current?.charId
-    && state.characters.some((c) => c.id === current.charId && c.ownerId === state.user?.id);
+  const sheet = current?.charId && state.characters.find((c) => c.id === current.charId);
+  const isMine = sheet && sheet.ownerId === state.user?.id;
   if (!isMine) return;
 
   state.turnAlert = current;
@@ -327,6 +334,9 @@ export function initSocket() {
     }
     render();
   });
+
+  // Combat animations are pushed to everyone watching the fight.
+  socket.on('fx', (fx) => { playFx(fx); });
 
   socket.on('presence', (ids) => { state.online = ids; render(); });
   socket.on('connect', () => { if (state.campaign) socket.emit('join', state.campaign.id); });

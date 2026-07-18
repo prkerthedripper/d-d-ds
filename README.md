@@ -28,9 +28,20 @@ everyone on their own phone, everything synced instantly.
   - Everyone rolls their **own** initiative; the DM can roll for the stragglers
   - The order sorts itself highest-first and cycles automatically, ticking the
     round over when it wraps
-  - When your turn comes up you get a full-screen **"IT'S YOUR TURN TO ATTACK"**
-    takeover with a chime, a buzz on phones, your attacks and every target one tap
-    away — so nobody misses their turn
+  - When your turn comes up you get a full-screen **"PARKER, IT'S YOUR TURN!"**
+    takeover with a chime and a buzz on phones. Everyone else sees
+    "Waiting for Parker…", and the DM gets a turn timer and a Skip button
+  - **Action cards** rather than bare dice: Quick Attack, Power Attack, Defensive
+    Stance, Aim, Help Ally, Dodge, Interact and Use Environment — each with real
+    mechanical effects the server applies
+  - **Spells that actually cast.** Guiding Bolt rolls a spell attack and leaves the
+    target easier to hit; Cure Wounds heals; Hunter's Mark adds 1d6 to every hit
+    from whoever cast it. Slots are spent, higher slots scale the dice
+  - **Conditions with timers.** The DM taps a condition, sets how many turns, and it
+    counts down on its own and clears itself
+  - **Animations**: sword slash for melee, purple blast for magic, green glow for
+    healing, gold explosion on a natural 20, dark smoke on a natural 1, red screen
+    shake on a big hit, and a spell card that flies in when a spell is named
   - **Attacks actually resolve**: d20 + to-hit against the target's AC, then damage
     dice, applied to their HP and written to the combat log. Rolled on the server so
     nobody can fudge it and everyone sees the same numbers
