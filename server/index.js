@@ -783,9 +783,20 @@ async function presenceFor(campaignId) {
 
 // ---------------------------------------------------------------- static
 
-app.use(express.static(path.join(__dirname, '..', 'public'), { maxAge: PROD ? '1h' : 0 }));
+// There is no build step and no hashed filenames, so caching by age would leave
+// phones running old JavaScript after a deploy. 'no-cache' still caches, but
+// forces a revalidation first — unchanged files come back as an empty 304.
+const staticOptions = {
+  etag: true,
+  lastModified: true,
+  setHeaders: (res) => res.setHeader('Cache-Control', 'no-cache'),
+};
+
+app.use(express.static(path.join(__dirname, '..', 'public'), staticOptions));
+
 app.get('*', (req, res) => {
   if (req.path.startsWith('/api/')) return res.status(404).json({ error: 'Not found' });
+  res.setHeader('Cache-Control', 'no-cache');
   res.sendFile(path.join(__dirname, '..', 'public', 'index.html'));
 });
 
