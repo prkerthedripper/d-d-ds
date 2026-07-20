@@ -846,3 +846,51 @@ td { padding: 13px 16px; border-top: 1px solid var(--line-soft); font-size: 14px
 }
 .turn-choice .flip-r { color: var(--ink-3); transform: rotate(-90deg); }
 .ic.flip { transform: rotate(90deg); }
+
+/* ---------------------------------------------------------------- turn takeover */
+
+.turn-alert {
+  position: fixed; inset: 0; z-index: 95;
+  display: grid; place-items: center; padding: 18px;
+  background: rgba(10, 8, 22, .74);
+  backdrop-filter: blur(3px);
+  animation: fadeIn .18s ease-out;
+}
+.turn-card {
+  width: 100%; max-width: 440px; max-height: 92dvh; overflow-y: auto;
+  background: var(--panel); border-radius: 20px; padding: 26px 22px;
+  text-align: center;
+  border: 2px solid var(--accent);
+  box-shadow: 0 24px 70px rgba(0, 0, 0, .45);
+  animation: rise .26s cubic-bezier(.2, .9, .3, 1.15);
+}
+.turn-card h1 {
+  font-family: var(--serif);
+  font-size: 27px; font-weight: 700; line-height: 1.16;
+  color: var(--accent); letter-spacing: -.2px;
+}
+.turn-card h2 { font-family: var(--serif); }
+.turn-flash {
+  display: inline-block; margin-bottom: 12px;
+  padding: 5px 15px; border-radius: 999px;
+  background: var(--gold-soft); color: var(--gold-ink);
+  font-size: 11px; font-weight: 700; letter-spacing: 1.6px; text-transform: uppercase;
+}
+
+@keyframes fadeIn { from { opacity: 0; } }
+@keyframes rise {
+  from { opacity: 0; transform: translateY(20px) scale(.95); }
+}
+
+/* Once it has played its entrance, later re-renders must not replay it. */
+.turn-alert.settled { animation: none; }
+.turn-card.settled { animation: none; }
+
+@media (prefers-reduced-motion: reduce) {
+  .turn-alert, .turn-card { animation: none; }
+}
+
+@media (max-width: 860px) {
+  .turn-card { padding: 20px 16px; }
+  .turn-card h1 { font-size: 23px; }
+}

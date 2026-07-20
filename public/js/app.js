@@ -12,6 +12,10 @@ setRenderer(() => {
   // Chat panes should sit at the newest message.
   const log = document.getElementById('chatlog');
   if (log) log.scrollTop = log.scrollHeight;
+
+  // After the popup's first paint, mark it settled so later renders don't replay
+  // the entrance animation.
+  if (state.turnAlert) state.turnAlertShown = true;
 });
 
 bindEvents(root, render);

@@ -34,6 +34,7 @@ export const state = {
   clock: Date.now(), // ticks once a second while a fight is on screen
   turnTab: 'actions',
   pendingAction: null,
+  turnAlertShown: false,
 };
 
 // ---------------------------------------------------------------- api
@@ -192,7 +193,22 @@ export function bindEvents(root, render) {
 let renderFn = () => {};
 export const setRenderer = (fn) => { renderFn = fn; };
 
-/** Re-render the whole app, keeping focus and caret in the field being typed in. */
+/** A stable identity for a field, so its value survives a re-render. */
+function fieldKey(el) {
+  if (el.dataset.keep) return `k:${el.dataset.keep}`;
+  const act = el.closest('form')?.dataset?.act;
+  if (act && el.name) return `f:${act}:${el.name}`;
+  return null;
+}
+
+/**
+ * Re-render the whole app.
+ *
+ * Rendering replaces the DOM wholesale, so anything half-typed would be thrown
+ * away — and a render can fire at any moment because someone else rolled dice or
+ * took damage. Every field is snapshotted by its data-keep name and put back
+ * afterwards, along with focus, caret and scroll position.
+ */
 export function render() {
   const active = document.activeElement;
   const keep = active?.dataset?.keep;
@@ -200,8 +216,25 @@ export function render() {
   const scroller = document.querySelector('.content');
   const scrollTop = scroller?.scrollTop ?? 0;
 
+  // Snapshot what the user has typed but not yet submitted. Fields carry an
+  // explicit data-keep, or fall back to "which form + which field".
+  const typed = new Map();
+  for (const el of document.querySelectorAll('input, textarea, select')) {
+    const key = fieldKey(el);
+    if (!key) continue;
+    typed.set(key, el.type === 'checkbox' || el.type === 'radio' ? el.checked : el.value);
+  }
+
   document.documentElement.dataset.theme = state.theme;
   renderFn();
+
+  for (const el of document.querySelectorAll('input, textarea, select')) {
+    const key = fieldKey(el);
+    if (!key || !typed.has(key)) continue;
+    const value = typed.get(key);
+    if (el.type === 'checkbox' || el.type === 'radio') el.checked = value;
+    else if (el.value !== value) el.value = value;
+  }
 
   if (keep) {
     const next = document.querySelector(`[data-keep="${keep}"]`);
@@ -212,6 +245,7 @@ export function render() {
       }
     }
   }
+
   const nextScroller = document.querySelector('.content');
   if (nextScroller && scrollTop) nextScroller.scrollTop = scrollTop;
 }
@@ -297,6 +331,7 @@ export function checkMyTurn() {
   if (!isMine) return;
 
   state.turnAlert = current;
+  state.turnAlertShown = false; // let the entrance animation play once
   state.turnTab = 'menu'; // always open on the simple menu
   chime();
   if (navigator.vibrate) navigator.vibrate([160, 80, 160]);

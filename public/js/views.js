@@ -224,9 +224,13 @@ function turnAlertView() {
   const playerName = sheet ? nameOf(sheet.ownerId) : c.name;
   const tab = state.turnTab || 'menu';
 
+  // The fly-in plays once per turn. Without this any re-render — a dice roll from
+  // someone else, a HP change — would restart it and the popup would flash.
+  const settled = state.turnAlertShown ? 'settled' : '';
+
   return `
-  <div class="turn-alert">
-    <div class="turn-card">
+  <div class="turn-alert ${settled}">
+    <div class="turn-card ${settled}">
       <div class="turn-flash">Round ${state.combat.round}</div>
       <h1>${esc(playerName.toUpperCase())},<br />IT’S YOUR TURN!</h1>
 
