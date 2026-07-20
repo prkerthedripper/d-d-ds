@@ -690,35 +690,35 @@ app.post('/api/campaigns/:id/combat/attack', auth, requireMember, wrap(async (re
   if (!attack) throw bad('That attack does not exist');
 
   const mode = ['advantage', 'disadvantage'].includes(req.body.mode) ? req.body.mode : 'normal';
-  const hitRoll = attackRoll(Number(attack.toHit) || 0, mode);
+
+  // Same engine as the action cards, so conditions apply here too.
+  const result = resolveAttack({ attacker, target, attack, action: null, mode });
 
   let line;
-  let damage = null;
-  const hit = hitRoll.crit || (!hitRoll.fumble && hitRoll.total >= (target.ac || 10));
-
-  if (hit) {
-    damage = damageRoll(String(attack.damage || '1d4'), hitRoll.crit);
-    target.hp = Math.max(0, target.hp - damage.total);
-
-    line = `${attacker.name} ${hitRoll.crit ? 'CRITS' : 'hits'} ${target.name} with ${attack.name} `
-      + `(${hitRoll.total} vs AC ${target.ac}) for ${damage.total} ${attack.type || ''} damage`.trimEnd()
+  if (result.hit) {
+    await applyHp(req.campaignId, target, -result.damage);
+    line = `${attacker.name} ${result.hitRoll.crit ? 'CRITS' : 'hits'} ${target.name} with ${attack.name} `
+      + `(${result.hitRoll.total} vs AC ${target.ac}) for ${result.damage} ${attack.type || ''} damage`.trimEnd()
       + `. ${target.name}: ${target.hp}/${target.maxHp} HP`
       + (target.hp === 0 ? ' — down!' : '');
   } else {
     line = `${attacker.name} misses ${target.name} with ${attack.name} `
-      + `(${hitRoll.fumble ? 'natural 1' : `${hitRoll.total} vs AC ${target.ac}`}).`;
+      + `(${result.hitRoll.fumble ? 'natural 1' : `${result.hitRoll.total} vs AC ${target.ac}`}).`;
   }
-
-  // Keep a player character's own sheet in step with its combat HP.
-  if (target.charId) {
-    await run('UPDATE characters SET hp = ? WHERE id = ?', [target.hp, target.charId]);
-    emit(req.campaignId, 'characters', await loadCharacters(req.campaignId));
-  }
+  if (result.notes.length) line += ` [${result.notes.join(', ')}]`;
 
   await persistCombat(req.campaignId, combat);
+  emit(req.campaignId, 'characters', await loadCharacters(req.campaignId));
+  sendFx(req.campaignId, {
+    type: result.fx, actorId: attacker.id, targetId: target.id,
+    damage: result.damage, crit: result.hitRoll.crit, hit: result.hit, label: attack.name,
+  });
   await logCombat(req.campaignId, req.user.id, line);
 
-  res.json({ hit, crit: hitRoll.crit, attackRoll: hitRoll.total, damage: damage?.total ?? 0, line });
+  res.json({
+    hit: result.hit, crit: result.hitRoll.crit,
+    attackRoll: result.hitRoll.total, damage: result.damage, line,
+  });
 }));
 
 /**

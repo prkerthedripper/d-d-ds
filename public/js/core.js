@@ -145,6 +145,12 @@ export function bindEvents(root, render) {
   root.addEventListener('click', (e) => {
     const el = e.target.closest('[data-act]');
     if (!el) return;
+
+    // A <form> carries data-act for its submit handler. Clicking anything inside
+    // it — a text box, a label — bubbles up to here, and firing the action would
+    // save the form the moment you touched a field. Forms only run on submit.
+    if (el.tagName === 'FORM') return;
+
     const fn = actions.get(el.dataset.act);
     if (!fn) return;
     e.preventDefault();

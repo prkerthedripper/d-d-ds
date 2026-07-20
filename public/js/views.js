@@ -36,7 +36,7 @@ export function gateView() {
   <div class="gate">
     <div class="gate-card">
       <div class="brand">
-        <div class="brand-mark">${icon('dragon', { size: 20 })}</div>
+        <div class="brand-mark">${icon('dragon', { size: 26 })}</div>
         <div><div class="brand-name" style="color:var(--ink)">D&amp;D DS</div>
         <div class="brand-sub">Dripper Studios</div></div>
       </div>
@@ -92,7 +92,7 @@ export function lobbyView() {
   <div class="gate">
     <div class="gate-card" style="max-width:520px">
       <div class="brand">
-        <div class="brand-mark">${icon('dragon', { size: 20 })}</div>
+        <div class="brand-mark">${icon('dragon', { size: 26 })}</div>
         <div><div class="brand-name" style="color:var(--ink)">D&amp;D DS</div>
         <div class="brand-sub">Dripper Studios</div></div>
       </div>
@@ -176,7 +176,7 @@ export function shellView() {
   <div class="app">
     <aside class="sidebar">
       <div class="brand">
-        <div class="brand-mark">${icon('dragon', { size: 20 })}</div>
+        <div class="brand-mark">${icon('dragon', { size: 26 })}</div>
         <div><div class="brand-name">D&amp;D DS</div><div class="brand-sub">Dripper Studios</div></div>
       </div>
       <nav class="nav">
@@ -188,11 +188,15 @@ export function shellView() {
       <div class="side-foot">
         <div class="side-label">Current campaign</div>
         <button class="side-campaign" data-act="switch-campaign">
-          <span>${esc(state.campaign.name)}</span>${icon('chevron', { size: 16 })}
+          <span class="cmark">${icon('book', { size: 16 })}</span>
+          <span class="cname">${esc(state.campaign.name)}</span>
+          ${icon('chevron', { size: 15 })}
         </button>
-        <div class="row" style="margin-top:12px;padding:0 8px">
-          <button class="btn sm" data-act="theme">${icon(state.theme === 'dark' ? 'sun' : 'moon', { size: 15 })}</button>
-          <span class="tiny">${state.online.length} online</span>
+        <div class="online-pill">
+          <span class="online-dot"></span>
+          <span>${state.online.length} online</span>
+          <button class="btn sm" style="margin-left:auto;padding:5px 9px" data-act="theme"
+            title="Switch theme">${icon(state.theme === 'dark' ? 'sun' : 'moon', { size: 14 })}</button>
         </div>
       </div>
     </aside>
@@ -446,7 +450,7 @@ function topbarView() {
 
   return `
   <header class="topbar">
-    <div class="tt-label">Turn Tracker</div>
+    <div class="tt-label">${icon('swords', { size: 18 })} Turn Tracker</div>
     <div class="tt-row">
       ${list.slice(0, 8).map((c, i) => `
         <div class="tt-chip ${i === idx ? 'on' : ''}">
@@ -482,78 +486,151 @@ function pageView() {
 
 // ---------------------------------------------------------------- home
 
+/** Castle-and-dragon silhouette behind the hero — drawn, so nothing to load. */
+const HERO_ART = `
+<svg class="hero-art" viewBox="0 0 900 300" preserveAspectRatio="xMaxYMid slice" aria-hidden="true">
+  <defs>
+    <linearGradient id="hh" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#b79bff" stop-opacity=".30"/>
+      <stop offset="1" stop-color="#b79bff" stop-opacity="0"/>
+    </linearGradient>
+  </defs>
+  <circle cx="690" cy="78" r="34" fill="#f6e6b4" opacity=".16"/>
+  <path d="M470 300 L470 190 L530 150 L590 190 L590 300Z" fill="url(#hh)"/>
+  <g fill="#160f33" opacity=".55">
+    <path d="M600 300 L600 150 L625 132 L650 150 L650 300Z"/>
+    <path d="M655 300 L655 108 L682 86 L709 108 L709 300Z"/>
+    <path d="M714 300 L714 140 L740 120 L766 140 L766 300Z"/>
+    <path d="M771 300 L771 168 L795 150 L819 168 L819 300Z"/>
+    <path d="M596 156h227v144H596z"/>
+    <path d="M625 126l-4-22 8 6 6-14 6 14 8-6-4 22z"/>
+    <path d="M682 80l-4-24 8 7 6-16 6 16 8-7-4 24z"/>
+  </g>
+  <g fill="#0d0824" opacity=".7">
+    <path d="M0 300 L0 232 L60 196 L128 240 L196 202 L268 246 L330 214 L392 252 L392 300Z"/>
+    <path d="M820 300 L820 222 L868 192 L900 214 L900 300Z"/>
+  </g>
+  <g fill="#0b0620" opacity=".8" transform="translate(742 62) scale(.92)">
+    <path d="M0 24c14-10 30-14 46-10 8-14 24-22 40-20-10 6-16 16-16 26 14-2 28 4 36 16-12-4-24-2-34 6-8 6-12 16-10 26-10-12-26-18-42-16 6-8 6-18 0-26-6 6-14 8-20 6z"/>
+    <path d="M86 20c10-6 22-6 32 0-8 0-16 4-20 12-2-6-6-10-12-12z"/>
+  </g>
+</svg>`;
+
 function homeView() {
   const recent = state.rolls.slice(0, 5);
+  const quick = [
+    ['dice', 'dice', 'Dice Roller'],
+    ['combat', 'swords', 'Initiative Tracker'],
+    ['spells', 'sparkles', 'Spells'],
+    ['chat', 'chat', 'Party Chat'],
+  ];
+
   return `
   <div class="hero">
-    <h1>Welcome back, ${esc(state.user.username)}!</h1>
-    <p>${esc(state.campaign.description || 'Everything you need for an epic adventure.')}</p>
-    <button class="btn" data-act="go" data-page="characters">View Party</button>
+    ${HERO_ART}
+    <h1>Welcome back, <span class="gold">${esc(state.user.username)}</span>!</h1>
+    <p>${esc(state.campaign.description
+      || 'Your epic adventure continues. Gather your party, roll initiative, and make your legend.')}</p>
+    <button class="btn" data-act="go" data-page="characters">
+      ${icon('users', { size: 16 })} View Party</button>
   </div>
 
   <div class="grid g3">
     <div class="card">
-      <h3>Session Info</h3>
-      <div style="font-size:18px;font-weight:700">${esc(state.campaign.name)}</div>
-      <p class="muted" style="margin-top:4px">${esc(state.campaign.sessionTitle || 'Session 1')}</p>
-      <p class="tiny" style="margin-top:8px">DM: ${esc(nameOf(state.campaign.dmId))}</p>
-      <button class="btn sm wide" style="margin-top:12px" data-act="go" data-page="notes">Session Notes</button>
+      <div class="card-head">${icon('notes', { size: 17 })}<h3>Session Info</h3></div>
+      <div class="serif" style="font-size:20px;font-weight:700">${esc(state.campaign.name)}</div>
+      <p class="muted" style="margin-top:6px">
+        ${esc(state.campaign.sessionTitle || 'Session 1')}
+      </p>
+      <p class="tiny" style="margin-top:10px">
+        <span style="color:var(--accent);font-weight:650">DM:</span> ${esc(nameOf(state.campaign.dmId))}
+      </p>
+      <button class="quick-row" style="margin-top:16px" data-act="go" data-page="notes">
+        ${icon('notes', { size: 16 })} View Session Notes</button>
     </div>
 
     <div class="card">
-      <h3>Party</h3>
-      <div class="stack">
-        ${state.characters.length ? state.characters.map((c) => `
-          <div class="row" style="flex-wrap:nowrap">
-            ${avatar(c.name, state.online.includes(c.ownerId) ? 'on' : '', c.portrait)}
-            <div class="grow">
-              <div class="spread">
-                <span style="font-size:13.5px;font-weight:650">${esc(c.name)}</span>
-                <span class="tiny">${c.hp}/${c.maxHp}</span>
+      <div class="card-head">${icon('users', { size: 17 })}<h3>Party</h3></div>
+      ${state.characters.length ? `
+        <div class="stack">
+          ${state.characters.map((c) => `
+            <div class="row" style="flex-wrap:nowrap">
+              ${avatar(c.name, state.online.includes(c.ownerId) ? 'on' : '', c.portrait)}
+              <div class="grow">
+                <div class="spread">
+                  <span style="font-size:13.5px;font-weight:650">${esc(c.name)}</span>
+                  <span class="tiny mono">${c.hp}/${c.maxHp}</span>
+                </div>
+                <div class="tiny">Level ${c.level} ${esc(c.class)}</div>
+                ${hpBar(c.hp, c.maxHp)}
               </div>
-              <div class="tiny">Level ${c.level} ${esc(c.class)}</div>
-              ${hpBar(c.hp, c.maxHp)}
-            </div>
-          </div>`).join('')
-        : '<p class="muted">No characters yet.</p>'}
-      </div>
-      <button class="btn sm wide" style="margin-top:12px" data-act="go" data-page="characters">View All Characters</button>
+            </div>`).join('')}
+        </div>
+        <button class="quick-row" style="margin-top:16px" data-act="go" data-page="characters">
+          ${icon('shield', { size: 16 })} View All Characters</button>`
+      : `<div class="empty">
+          <div class="big">${icon('users', { size: 40 })}</div>
+          <p style="font-weight:650;color:var(--ink)">No characters added yet.</p>
+          <p class="tiny">Invite your party and add characters to get started.</p>
+          <button class="btn primary" style="margin-top:14px" data-act="go" data-page="characters">
+            ${icon('users', { size: 15 })} Manage Party</button>
+        </div>`}
     </div>
 
     <div class="card">
-      <h3>Quick Access</h3>
+      <div class="card-head">${icon('zap', { size: 17 })}<h3>Quick Access</h3></div>
       <div class="stack">
-        ${[['dice', 'dice', 'Dice Roller'], ['combat', 'swords', 'Initiative Tracker'], ['spells', 'sparkles', 'Spells'], ['chat', 'chat', 'Party Chat']]
-          .map(([p, ic, t]) => `<button class="btn wide" data-act="go" data-page="${p}" style="justify-content:flex-start">${icon(ic, { size: 16 })} ${t}</button>`).join('')}
+        ${quick.map(([p, ic, t]) => `
+          <button class="quick-row" data-act="go" data-page="${p}">
+            ${icon(ic, { size: 17 })} ${t}
+            <span class="chev">${icon('chevron', { size: 15 })}</span>
+          </button>`).join('')}
       </div>
     </div>
   </div>
 
-  <div class="grid g2" style="margin-top:16px">
+  <div class="grid g2" style="margin-top:18px">
     <div class="card">
-      <h3>Recent Rolls</h3>
+      <div class="card-head">
+        ${icon('dice', { size: 17 })}<h3>Recent Rolls</h3>
+        <button class="btn sm" data-act="go" data-page="dice">View All</button>
+      </div>
       ${recent.length ? recent.map((r) => `
         <div class="roll-line">
           <div class="roll-total">${r.total}</div>
           <div class="grow">
-            <div style="font-size:13.5px">${esc(nameOf(r.userId))} ${r.label ? `— ${esc(r.label)}` : ''}</div>
-            <div class="tiny mono">${esc(r.formula)} → ${esc(r.detail.replace(/~~/g, ''))}</div>
+            <div style="font-size:13.5px;font-weight:600">${esc(nameOf(r.userId))}</div>
+            <div class="tiny"><span class="mono">${esc(r.formula)}</span>
+              ${r.label ? ` · ${esc(r.label)}` : ''}</div>
           </div>
           <span class="tiny">${ago(r.createdAt)}</span>
         </div>`).join('')
-      : '<p class="muted">No rolls yet — head to the Dice Roller.</p>'}
+      : `<div class="empty">
+          <div class="big">${icon('dice', { size: 40 })}</div>
+          <p>No rolls yet — head to the Dice Roller.</p>
+        </div>`}
     </div>
 
     <div class="card">
-      <h3>Campaign Notes</h3>
+      <div class="card-head">
+        ${icon('book', { size: 17 })}<h3>Campaign Notes</h3>
+        <button class="btn sm" data-act="go" data-page="notes">View All Notes</button>
+      </div>
       ${state.notes.length ? state.notes.slice(0, 5).map((n) => `
         <div class="roll-line">
-          <div class="grow"><div style="font-size:13.5px;font-weight:600">${esc(n.title)}</div>
-          <div class="tiny">${esc(n.body.slice(0, 70))}${n.body.length > 70 ? '…' : ''}</div></div>
+          <div class="grow">
+            <div style="font-size:13.5px;font-weight:650">${esc(n.title)}</div>
+            <div class="tiny">${esc(n.body.slice(0, 70))}${n.body.length > 70 ? '…' : ''}</div>
+          </div>
           ${n.dmOnly ? '<span class="tag red">DM</span>' : ''}
         </div>`).join('')
-      : '<p class="muted">No notes yet.</p>'}
-      <button class="btn sm wide" style="margin-top:12px" data-act="go" data-page="notes">View All Notes</button>
+      : `<div class="empty">
+          <div class="big">${icon('book', { size: 40 })}</div>
+          <p style="font-weight:650;color:var(--ink)">No campaign notes yet.</p>
+          <p class="tiny">Capture important moments, plot hooks, and session recaps here.</p>
+          <button class="btn primary" style="margin-top:14px" data-act="modal" data-name="new-note">
+            ${icon('plus', { size: 15 })} New Note</button>
+        </div>`}
     </div>
   </div>`;
 }
