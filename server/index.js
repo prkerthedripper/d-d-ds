@@ -15,7 +15,7 @@ import {
 } from './combat.js';
 import {
   SPELLS, CONDITIONS, CLASSES, RACES, SKILLS, DEFAULT_SLOTS, MONSTERS,
-  SPELL_EFFECTS, COMBAT_ACTIONS, CONDITION_LOOK,
+  SPELL_EFFECTS, COMBAT_ACTIONS, CONDITION_LOOK, ITEM_CATALOG,
 } from './srd.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -140,6 +140,7 @@ function shapeCharacter(row, items = []) {
     items: items.map((i) => ({
       id: i.id, characterId: i.character_id, name: i.name, category: i.category,
       details: i.details, weight: i.weight, qty: i.qty, equipped: !!i.equipped,
+      effect: P(i.effect, null),
     })),
   };
 }
@@ -438,6 +439,29 @@ app.patch('/api/characters/:id/owner', auth, wrap(characterAccess), wrap(async (
   res.json({ ok: true });
 }));
 
+/**
+ * Adjust a character's HP with a note — the DM patching damage or healing that
+ * happens outside combat (a trap, a fall, a good rest), so the whole party sees
+ * why. Owner or DM.
+ */
+app.post('/api/characters/:id/hp', auth, wrap(characterAccess), wrap(async (req, res) => {
+  const c = req.character;
+  const delta = Math.round(Number(req.body.delta) || 0);
+  if (!delta) throw bad('Enter an amount');
+
+  const hp = Math.max(0, Math.min(c.max_hp, c.hp + delta));
+  await run('UPDATE characters SET hp = ? WHERE id = ?', [hp, c.id]);
+  emit(c.campaign_id, 'characters', await loadCharacters(c.campaign_id));
+
+  const reason = String(req.body.reason || '').slice(0, 120).trim();
+  const verb = delta > 0 ? `heals ${delta}` : `takes ${-delta} damage`;
+  await logCombat(c.campaign_id, req.user.id,
+    `${c.name} ${verb}${reason ? ` — ${reason}` : ''}. (${hp}/${c.max_hp} HP)`);
+  sendFx(c.campaign_id, delta > 0 ? { type: 'heal', heal: delta } : { type: 'slash', damage: -delta });
+
+  res.json({ ok: true, hp });
+}));
+
 app.delete('/api/characters/:id', auth, wrap(characterAccess), wrap(async (req, res) => {
   await run('DELETE FROM items WHERE character_id = ?', [req.params.id]);
   await run('DELETE FROM characters WHERE id = ?', [req.params.id]);
@@ -449,13 +473,70 @@ app.delete('/api/characters/:id', auth, wrap(characterAccess), wrap(async (req, 
 
 app.post('/api/characters/:id/items', auth, wrap(characterAccess), wrap(async (req, res) => {
   const b = req.body || {};
-  await run(
-    `INSERT INTO items (id, character_id, name, category, details, weight, qty, equipped, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [uid(), req.params.id, String(b.name || 'Item').slice(0, 60), String(b.category || 'Gear'),
-      String(b.details || ''), Number(b.weight) || 0, Number(b.qty) || 1, b.equipped ? 1 : 0, now()],
-  );
+  const characterId = req.params.id;
+  const name = String(b.name || 'Item').slice(0, 60);
+
+  // Stack with an identical item already carried.
+  const existing = await get('SELECT * FROM items WHERE character_id = ? AND name = ?', [characterId, name]);
+  if (existing) {
+    await run('UPDATE items SET qty = ? WHERE id = ?', [existing.qty + (Number(b.qty) || 1), existing.id]);
+  } else {
+    await run(
+      `INSERT INTO items (id, character_id, name, category, details, weight, qty, equipped, effect, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [uid(), characterId, name, String(b.category || 'Gear'),
+        String(b.details || ''), Number(b.weight) || 0, Number(b.qty) || 1, b.equipped ? 1 : 0,
+        b.effect ? J(b.effect) : '', now()],
+    );
+  }
   emit(req.campaignId, 'characters', await loadCharacters(req.campaignId));
+  res.json({ ok: true });
+}));
+
+/** Use a consumable: apply its effect, then drop one from the stack. */
+app.post('/api/items/:id/use', auth, wrap(itemAccessRaw), wrap(async (req, res) => {
+  const item = req.item;
+  const effect = P(item.effect, null);
+  if (!effect || effect.kind === 'food') {
+    // Still let food be "eaten" — just no mechanics.
+    if (effect?.kind !== 'food') throw bad('That item cannot be used');
+  }
+
+  const character = await get('SELECT * FROM characters WHERE id = ?', [item.character_id]);
+  const parts = [];
+  let fx = null;
+
+  if (effect?.kind === 'heal') {
+    let healed = 0;
+    try { healed = roll(String(effect.amount || '1d4')).total; } catch { healed = 0; }
+    const hp = Math.min(character.max_hp, character.hp + healed);
+    await run('UPDATE characters SET hp = ? WHERE id = ?', [hp, character.id]);
+    parts.push(`heals ${healed} (${hp}/${character.max_hp} HP)`);
+    fx = { type: 'heal', heal: healed, label: item.name };
+  } else if (effect?.kind === 'temphp') {
+    const amount = Number(String(effect.amount).replace(/[^\d]/g, '')) || 0;
+    await run('UPDATE characters SET temp_hp = ? WHERE id = ?', [Math.max(character.temp_hp, amount), character.id]);
+    parts.push(`grants ${amount} temporary HP`);
+    fx = { type: 'holy', label: item.name };
+  } else if (effect?.kind === 'cure') {
+    const conditions = P(character.conditions, []).filter((c) => {
+      const name = typeof c === 'string' ? c : c.name;
+      return !(effect.clears || []).includes(name);
+    });
+    await run('UPDATE characters SET conditions = ? WHERE id = ?', [J(conditions), character.id]);
+    parts.push((effect.clears || []).length ? `cures ${effect.clears.join(', ')}` : 'used');
+    fx = { type: 'heal', label: item.name };
+  } else if (effect?.kind === 'food') {
+    parts.push('eaten');
+  }
+
+  // Consume one.
+  if (item.qty > 1) await run('UPDATE items SET qty = ? WHERE id = ?', [item.qty - 1, item.id]);
+  else await run('DELETE FROM items WHERE id = ?', [item.id]);
+
+  emit(item.character_id && req.campaignId, 'characters', await loadCharacters(req.campaignId));
+  if (fx) sendFx(req.campaignId, fx);
+  await logCombat(req.campaignId, req.user.id, `${character.name} uses ${item.name} — ${parts.join(', ')}.`);
   res.json({ ok: true });
 }));
 
@@ -464,6 +545,15 @@ async function itemAccess(req, res, next) {
   if (!item) return res.status(404).json({ error: 'Item not found' });
   req.params.id = item.character_id;
   req.itemId = item.id;
+  return characterAccess(req, res, next);
+}
+
+/** Like itemAccess but keeps the item row on req and leaves req.params alone. */
+async function itemAccessRaw(req, res, next) {
+  const item = await get('SELECT * FROM items WHERE id = ?', [req.params.id]);
+  if (!item) return res.status(404).json({ error: 'Item not found' });
+  req.item = item;
+  req.params.id = item.character_id;
   return characterAccess(req, res, next);
 }
 
@@ -623,6 +713,26 @@ function canControl(combatant, membership, userId, characters) {
   return characters.some((c) => c.id === combatant.charId && c.ownerId === userId);
 }
 
+/** Is this combatant the one whose turn it currently is? */
+function isActiveTurn(combat, combatantId) {
+  if (!combat.combatants.length) return false;
+  return combat.combatants[combat.turnIndex % combat.combatants.length]?.id === combatantId;
+}
+
+/**
+ * Index of the next living combatant after `from`, wrapping once. Returns the
+ * step count so the caller can tell how many rounds ticked over. If everyone
+ * left standing is down, it just advances by one.
+ */
+function nextLivingTurn(combat, from) {
+  const n = combat.combatants.length;
+  for (let step = 1; step <= n; step++) {
+    const idx = (from + step) % n;
+    if (combat.combatants[idx].hp > 0) return { index: idx, steps: step };
+  }
+  return { index: (from + 1) % n, steps: 1 };
+}
+
 /** Roll initiative for one combatant, then re-sort the order. */
 app.post('/api/campaigns/:id/combat/initiative', auth, requireMember, wrap(async (req, res) => {
   const combat = await loadCombat(req.campaignId);
@@ -683,6 +793,9 @@ app.post('/api/campaigns/:id/combat/attack', auth, requireMember, wrap(async (re
   if (!canControl(attacker, req.membership, req.user.id, characters)) {
     throw bad('You can only attack with your own character', 403);
   }
+  if (req.membership.role !== 'dm' && !isActiveTurn(combat, attacker.id)) {
+    throw bad('Wait for your turn to attack', 403);
+  }
 
   // A player character's attacks come from their live sheet, so an attack added
   // mid-fight works without rebuilding the encounter.
@@ -742,15 +855,17 @@ app.post('/api/campaigns/:id/combat/next-turn', auth, requireMember, wrap(async 
   // The finished turn is when this creature's conditions tick down.
   const expired = tickConditions(current);
 
-  const next = combat.turnIndex + 1;
-  combat.turnIndex = next % n;
-  if (next >= n) combat.round += 1;
+  // Skip over anyone who is down — a dead enemy doesn't get a turn.
+  const { index, steps } = nextLivingTurn(combat, combat.turnIndex);
+  const wrapped = combat.turnIndex + steps >= n;
+  combat.turnIndex = index;
+  if (wrapped) combat.round += 1;
   combat.turnStartedAt = now();
 
   await persistCombat(req.campaignId, combat);
 
   const up = combat.combatants[combat.turnIndex];
-  if (next >= n) await logCombat(req.campaignId, req.user.id, `— Round ${combat.round} —`);
+  if (wrapped) await logCombat(req.campaignId, req.user.id, `— Round ${combat.round} —`);
   if (expired.length) {
     await logCombat(req.campaignId, req.user.id,
       `${current.name} is no longer ${expired.join(', ')}.`);
@@ -787,6 +902,9 @@ app.post('/api/campaigns/:id/combat/action', auth, requireMember, wrap(async (re
   const actor = combat.combatants.find((c) => c.id === req.body.actorId);
   if (!actor) throw bad('You are not in this fight', 404);
   if (!canControl(actor, req.membership, req.user.id, characters)) throw bad('Not your character', 403);
+  if (req.membership.role !== 'dm' && !isActiveTurn(combat, actor.id)) {
+    throw bad('Wait for your turn', 403);
+  }
 
   const action = findAction(String(req.body.actionId || ''));
   if (!action) throw bad('Unknown action');
@@ -847,6 +965,9 @@ app.post('/api/campaigns/:id/combat/cast', auth, requireMember, wrap(async (req,
   const caster = combat.combatants.find((c) => c.id === req.body.casterId);
   if (!caster) throw bad('You are not in this fight', 404);
   if (!canControl(caster, req.membership, req.user.id, characters)) throw bad('Not your character', 403);
+  if (req.membership.role !== 'dm' && !isActiveTurn(combat, caster.id)) {
+    throw bad('Wait for your turn to cast', 403);
+  }
 
   const sheet = caster.charId ? characters.find((c) => c.id === caster.charId) : null;
   if (!sheet) throw bad('Only player characters cast from a spell list');
@@ -1236,6 +1357,7 @@ app.get('/api/srd', (req, res) => {
     spells: SPELLS, conditions: CONDITIONS, classes: CLASSES,
     races: RACES, skills: SKILLS, monsters: MONSTERS,
     spellEffects: SPELL_EFFECTS, actions: COMBAT_ACTIONS, conditionLook: CONDITION_LOOK,
+    itemCatalog: ITEM_CATALOG,
   });
 });
 

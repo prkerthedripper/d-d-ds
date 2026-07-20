@@ -229,6 +229,60 @@ export const CONDITION_LOOK = {
   Commanded: { icon: 'zap', tint: '#8a6bff' },
 };
 
+// Ready-made items the DM or a player can add to a bag. Consumables carry an
+// `effect` the server applies when you press Use.
+//   heal   — restore HP (dice or flat)
+//   temphp — grant temporary HP
+//   cure   — remove conditions
+//   food   — flavour, no mechanical effect
+const it = (name, category, weight, details, effect = null, price = '') =>
+  ({ name, category, weight, details, effect, price });
+
+export const ITEM_CATALOG = [
+  // potions
+  it('Potion of Healing', 'Potion', 0.5, 'Regain 2d4 + 2 HP.', { kind: 'heal', amount: '2d4+2' }, '50 gp'),
+  it('Potion of Greater Healing', 'Potion', 0.5, 'Regain 4d4 + 4 HP.', { kind: 'heal', amount: '4d4+4' }, '150 gp'),
+  it('Potion of Superior Healing', 'Potion', 0.5, 'Regain 8d4 + 8 HP.', { kind: 'heal', amount: '8d4+8' }, '450 gp'),
+  it('Potion of Climbing', 'Potion', 0.5, 'Climbing speed for 1 hour.', { kind: 'buff', condition: 'Climbing', turns: 10 }, '75 gp'),
+  it('Potion of Heroism', 'Potion', 0.5, '10 temp HP and Bless for 1 hour.', { kind: 'temphp', amount: '10', also: 'Blessed' }, '180 gp'),
+  it('Antitoxin', 'Potion', 0, 'Advantage on poison saves for 1 hour.', { kind: 'cure', clears: ['Poisoned'] }, '50 gp'),
+  it('Potion of Fire Breath', 'Potion', 0.5, 'Breathe fire, 3 times.', { kind: 'buff', condition: 'Fire Breath', turns: 10 }, '150 gp'),
+
+  // food & rations
+  it('Rations (1 day)', 'Gear', 2, 'A day of trail food.', { kind: 'food' }, '5 sp'),
+  it('Bread Loaf', 'Gear', 0.5, 'A hearty loaf.', { kind: 'food' }, '2 cp'),
+  it('Ale (mug)', 'Gear', 1, 'A frothy mug.', { kind: 'food' }, '4 cp'),
+  it('Waterskin', 'Gear', 5, 'Holds 4 pints.', null, '2 sp'),
+  it('Healer’s Kit', 'Gear', 3, 'Stabilise a dying creature (10 uses).', { kind: 'cure', clears: [] }, '5 gp'),
+
+  // scrolls
+  it('Spell Scroll (Cure Wounds)', 'Other', 0, 'Cast Cure Wounds once.', { kind: 'heal', amount: '1d8+3' }, '60 gp'),
+  it('Scroll of Revivify', 'Other', 0, 'Return the newly dead to life.', null, '300 gp'),
+
+  // weapons
+  it('Longsword', 'Weapon', 3, '1d8 slashing (1d10 two-handed).', null, '15 gp'),
+  it('Shortsword', 'Weapon', 2, '1d6 piercing, finesse.', null, '10 gp'),
+  it('Greataxe', 'Weapon', 7, '1d12 slashing, heavy.', null, '30 gp'),
+  it('Longbow', 'Weapon', 2, '1d8 piercing, range 150/600.', null, '50 gp'),
+  it('Dagger', 'Weapon', 1, '1d4 piercing, finesse, thrown.', null, '2 gp'),
+  it('Mace', 'Weapon', 4, '1d6 bludgeoning.', null, '5 gp'),
+  it('Quarterstaff', 'Weapon', 4, '1d6 bludgeoning (1d8 two-handed).', null, '2 sp'),
+
+  // armour
+  it('Leather Armor', 'Armor', 10, 'AC 11 + Dex.', null, '10 gp'),
+  it('Chain Shirt', 'Armor', 20, 'AC 13 + Dex (max 2).', null, '50 gp'),
+  it('Chain Mail', 'Armor', 55, 'AC 16, needs Str 13.', null, '75 gp'),
+  it('Shield', 'Armor', 6, '+2 AC.', null, '10 gp'),
+
+  // gear
+  it('Torch', 'Gear', 1, 'Bright light 20 ft for 1 hour.', null, '1 cp'),
+  it('Rope, Hempen (50 ft)', 'Gear', 10, 'Strong rope.', null, '1 gp'),
+  it('Thieves’ Tools', 'Gear', 1, 'Pick locks, disarm traps.', null, '25 gp'),
+  it('Grappling Hook', 'Gear', 4, 'Catches on a ledge.', null, '2 gp'),
+  it('Bedroll', 'Gear', 7, 'For a comfortable rest.', null, '1 gp'),
+  it('Lantern, Hooded', 'Gear', 2, 'Bright light 30 ft.', null, '5 gp'),
+];
+
 export const DEFAULT_SLOTS = Object.fromEntries(
   Array.from({ length: 9 }, (_, i) => [i + 1, { max: 0, used: 0 }]),
 );

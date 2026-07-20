@@ -631,6 +631,9 @@ function homeView() {
                 <div class="tiny">Level ${c.level} ${esc(c.class)}</div>
                 ${hpBar(c.hp, c.maxHp)}
               </div>
+              ${isDM() || c.ownerId === state.user.id ? `
+                <button class="btn sm" data-act="modal" data-name="adjust-hp" data-id="${c.id}"
+                  title="Adjust HP">${icon('heart', { size: 14 })}</button>` : ''}
             </div>`).join('')}
         </div>
         <button class="quick-row" style="margin-top:16px" data-act="go" data-page="characters">
@@ -958,7 +961,10 @@ function inventoryView() {
             <td data-l="Details" class="muted">${esc(i.details) || '—'}</td>
             <td data-l="Weight">${i.weight} lb</td>
             <td data-l="Qty">${i.qty}</td>
-            <td data-l="">${mine ? `<div class="row">
+            <td data-l="">${mine ? `<div class="row" style="justify-content:flex-end">
+              ${i.effect && i.effect.kind !== null ? `
+                <button class="btn sm primary" data-act="use-item" data-id="${i.id}">
+                  ${icon(i.effect.kind === 'heal' ? 'potion' : 'sparkles', { size: 13 })} Use</button>` : ''}
               <button class="btn sm" data-act="item-qty" data-id="${i.id}" data-d="-1">−</button>
               <button class="btn sm" data-act="item-qty" data-id="${i.id}" data-d="1">+</button>
               <button class="btn sm danger" data-act="item-del" data-id="${i.id}">${icon('trash', { size: 14 })}</button>
@@ -982,6 +988,13 @@ on('item-qty', async (el) => {
 });
 
 on('item-del', async (el) => { await api('DELETE', `/api/items/${el.dataset.id}`); });
+
+on('use-item', async (el) => {
+  const c = selected();
+  const item = c.items.find((i) => i.id === el.dataset.id);
+  await api('POST', `/api/items/${el.dataset.id}/use`);
+  toast(`Used ${item?.name || 'item'}`);
+});
 
 // ---------------------------------------------------------------- dice
 
@@ -1238,6 +1251,9 @@ function initRow(c, i, turnIndex, dm) {
   const targeting = state.attackFrom && state.attackFrom !== c.id;
   // Match the server: a character's live sheet wins over the combat snapshot.
   const attacks = sheet?.attacks?.length ? sheet.attacks : (c.attacks || []);
+  // A player may only attack on their own turn; the DM acts whenever.
+  const myTurn = i === turnIndex % Math.max(1, state.combat.combatants.length);
+  const canAttack = dm || (mine && myTurn);
 
   return `
   <div class="init-row ${i === turnIndex ? 'turn' : ''} ${c.hp <= 0 ? 'dead' : ''} ${targeting ? 'targetable' : ''}"
@@ -1259,14 +1275,16 @@ function initRow(c, i, turnIndex, dm) {
         <button class="btn sm" style="margin-top:6px" data-act="roll-init-one" data-id="${c.id}">
           ${icon('dice', { size: 13 })} Roll initiative</button>` : ''}
 
-      ${!needsInit && canAct && c.hp > 0 && attacks.length ? `
+      ${!needsInit && canAttack && c.hp > 0 && attacks.length ? `
         <div class="row" style="margin-top:6px">
           ${attacks.map((a, ai) => `
             <button class="btn sm" data-act="begin-attack" data-id="${c.id}" data-index="${ai}">
               ${icon('sword', { size: 13 })} ${esc(a.name)}
               <span class="tiny mono">${signed(a.toHit)} · ${esc(a.damage)}</span>
             </button>`).join('')}
-        </div>` : ''}
+        </div>`
+      : (!needsInit && mine && !myTurn && c.hp > 0)
+        ? '<div class="tiny" style="margin-top:6px">Wait for your turn to act.</div>' : ''}
 
       ${dm && c.type === 'enemy' && c.hp <= 0 ? `
         <button class="btn sm ${c.looted ? '' : 'primary'}" style="margin-top:6px"
@@ -1861,6 +1879,7 @@ function modalBody(name) {
     case 'add-enemy': return enemyModal();
     case 'new-attack': return attackModal();
     case 'loot': return lootModal();
+    case 'adjust-hp': return adjustHpModal();
     case 'add-cond': return addConditionModal();
     case 'action-target': return actionTargetModal();
     case 'new-entry': return entryModal(null);
@@ -1962,24 +1981,71 @@ on('save-char', async (form) => {
 });
 
 function itemModal() {
+  const tab = state.itemTab || 'catalog';
+  const q = (state.itemFilter || '').toLowerCase();
+  const catalog = (state.srd.itemCatalog || [])
+    .filter((i) => !q || i.name.toLowerCase().includes(q) || i.category.toLowerCase().includes(q));
+
   return `
   <h2>Add Item</h2>
-  <form data-act="save-item">
-    <label class="field"><span>Name</span><input name="name" data-keep="i" placeholder="Longbow" required /></label>
-    <label class="field"><span>Category</span>
-      <select name="category">${['Weapon', 'Armor', 'Potion', 'Gear', 'Quest Item', 'Ammunition', 'Other']
-        .map((k) => `<option>${k}</option>`).join('')}</select></label>
-    <label class="field"><span>Details</span><input name="details" placeholder="1d8 piercing, range 150/600 ft" /></label>
-    <div class="row">
-      <label class="field grow"><span>Weight (lbs)</span><input name="weight" type="number" step="0.1" value="0" /></label>
-      <label class="field grow"><span>Quantity</span><input name="qty" type="number" min="1" value="1" /></label>
+  <div class="row" style="margin-bottom:12px">
+    <button class="pill ${tab === 'catalog' ? 'on' : ''}" data-act="item-tab" data-tab="catalog">
+      ${icon('backpack', { size: 14 })} From the list</button>
+    <button class="pill ${tab === 'custom' ? 'on' : ''}" data-act="item-tab" data-tab="custom">
+      ${icon('plus', { size: 14 })} Custom</button>
+  </div>
+
+  ${tab === 'catalog' ? `
+    <input placeholder="Search items…" data-live="item-filter" data-keep="itq"
+      value="${esc(state.itemFilter || '')}" style="margin-bottom:10px" />
+    <div class="stack" style="max-height:52dvh;overflow-y:auto">
+      ${catalog.map((i, idx) => `
+        <div class="spread" style="padding:9px 0;border-top:1px solid var(--line-soft)">
+          <div class="row" style="flex-wrap:nowrap">
+            ${itemTile(i.category, 34)}
+            <div>
+              <div style="font-size:13.5px;font-weight:650">${esc(i.name)}
+                ${i.effect && i.effect.kind !== 'food' && i.effect.kind !== null
+                  ? '<span class="tag" style="margin-left:4px">usable</span>' : ''}</div>
+              <div class="tiny">${esc(i.details)}${i.price ? ` · ${esc(i.price)}` : ''}</div>
+            </div>
+          </div>
+          <button class="btn sm primary" data-act="add-catalog-item" data-idx="${idx}"
+            data-name="${esc(i.name)}">${icon('plus', { size: 13 })}</button>
+        </div>`).join('') || '<p class="muted">Nothing matches.</p>'}
     </div>
-    <div class="row">
-      <button class="btn" type="button" data-act="close-modal">Cancel</button>
-      <button class="btn primary grow" type="submit">Add</button>
-    </div>
-  </form>`;
+    <button class="btn wide" style="margin-top:14px" data-act="close-modal">Done</button>`
+  : `
+    <form data-act="save-item">
+      <label class="field"><span>Name</span><input name="name" data-keep="i" placeholder="Longbow" required /></label>
+      <label class="field"><span>Category</span>
+        <select name="category">${['Weapon', 'Armor', 'Potion', 'Gear', 'Quest Item', 'Ammunition', 'Other']
+          .map((k) => `<option>${k}</option>`).join('')}</select></label>
+      <label class="field"><span>Details</span><input name="details" placeholder="1d8 piercing, range 150/600 ft" /></label>
+      <div class="row">
+        <label class="field grow"><span>Weight (lbs)</span><input name="weight" type="number" step="0.1" value="0" /></label>
+        <label class="field grow"><span>Quantity</span><input name="qty" type="number" min="1" value="1" /></label>
+      </div>
+      <div class="row">
+        <button class="btn" type="button" data-act="close-modal">Cancel</button>
+        <button class="btn primary grow" type="submit">Add</button>
+      </div>
+    </form>`}`;
 }
+
+on('item-tab', (el) => { state.itemTab = el.dataset.tab; render(); });
+on('item-filter', (el) => { state.itemFilter = el.value; render(); });
+
+on('add-catalog-item', async (el) => {
+  const c = selected();
+  const item = (state.srd.itemCatalog || []).find((i) => i.name === el.dataset.name);
+  if (!item) return;
+  await api('POST', `/api/characters/${c.id}/items`, {
+    name: item.name, category: item.category, details: item.details,
+    weight: item.weight, qty: 1, effect: item.effect,
+  });
+  toast(`Added ${item.name}`);
+});
 
 on('save-item', async (form) => {
   const c = selected();
@@ -2336,6 +2402,55 @@ on('run-action', async (el) => {
   await api('POST', `/api/campaigns/${state.campaign.id}/combat/action`, {
     actorId: p.actorId, actionId: p.actionId, targetId: el.dataset.target, text,
   });
+});
+
+/** Quick HP change with a reason, from the home screen — not just combat. */
+function adjustHpModal() {
+  const c = state.characters.find((x) => x.id === state.modal.id);
+  if (!c) return '<p class="muted">Character not found.</p>';
+  const reasons = ['Trap', 'Fall', 'Poison', 'Rested', 'Second Wind', 'Environmental', 'Story'];
+
+  return `
+  <h2>${esc(c.name)} — ${c.hp}/${c.maxHp} HP</h2>
+  <form data-act="save-hp" data-id="${c.id}">
+    <div class="row" style="margin-bottom:12px">
+      <button type="button" class="btn danger grow" data-act="hp-preset" data-amt="-5">−5</button>
+      <button type="button" class="btn danger grow" data-act="hp-preset" data-amt="-1">−1</button>
+      <button type="button" class="btn grow" data-act="hp-preset" data-amt="1">+1</button>
+      <button type="button" class="btn grow" data-act="hp-preset" data-amt="5">+5</button>
+    </div>
+
+    <label class="field">
+      <span>Amount (negative hurts, positive heals)</span>
+      <input name="delta" id="hpdelta" type="number" data-keep="hpd" placeholder="e.g. -8 or 12" required />
+    </label>
+
+    <label class="field"><span>Why? (everyone sees this)</span>
+      <input name="reason" data-keep="hpr" list="hpreasons" placeholder="Stepped on a trap" />
+      <datalist id="hpreasons">${reasons.map((r) => `<option value="${r}">`).join('')}</datalist>
+    </label>
+
+    <div class="row">
+      <button class="btn" type="button" data-act="close-modal">Cancel</button>
+      <button class="btn primary grow" type="submit">Apply</button>
+    </div>
+  </form>`;
+}
+
+on('hp-preset', (el) => {
+  const input = document.getElementById('hpdelta');
+  if (input) { input.value = el.dataset.amt; input.focus(); }
+});
+
+on('save-hp', async (form) => {
+  const delta = num(form, 'delta');
+  if (!delta) return toast('Enter an amount', 'err');
+  await api('POST', `/api/characters/${form.dataset.id}/hp`, {
+    delta, reason: val(form, 'reason'),
+  });
+  toast(delta > 0 ? `Healed ${delta}` : `Took ${-delta} damage`);
+  state.modal = null;
+  render();
 });
 
 function lootModal() {

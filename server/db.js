@@ -242,6 +242,7 @@ export async function migrate() {
   await addColumn('characters', 'spell_ability', `TEXT DEFAULT 'wis'`);
   await run(`UPDATE characters SET spell_ability = 'wis' WHERE spell_ability IS NULL`);
   await addColumn('combat', 'turn_started_at', 'BIGINT DEFAULT 0');
+  await addColumn('items', 'effect', `TEXT DEFAULT ''`);
   await addColumn('enemy_presets', 'loot', `TEXT DEFAULT '[]'`);
   await run(`UPDATE enemy_presets SET loot = '[]' WHERE loot IS NULL`);
 
