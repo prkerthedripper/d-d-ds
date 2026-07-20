@@ -297,6 +297,7 @@ export function checkMyTurn() {
   if (!isMine) return;
 
   state.turnAlert = current;
+  state.turnTab = 'menu'; // always open on the simple menu
   chime();
   if (navigator.vibrate) navigator.vibrate([160, 80, 160]);
 }

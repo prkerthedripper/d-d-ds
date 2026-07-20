@@ -583,8 +583,11 @@ app.put('/api/campaigns/:id/combat', auth, requireMember, requireDM, wrap(async 
 
   const exists = await get('SELECT campaign_id FROM combat WHERE campaign_id = ?', [req.campaignId]);
   if (exists) {
-    await run('UPDATE combat SET active = ?, round = ?, turn_index = ?, name = ?, combatants = ?, updated_at = ? WHERE campaign_id = ?',
-      [payload.active, payload.round, payload.turnIndex, payload.name, J(combatants), now(), req.campaignId]);
+    await run(
+      `UPDATE combat SET active = ?, round = ?, turn_index = ?, name = ?, combatants = ?,
+       turn_started_at = ?, updated_at = ? WHERE campaign_id = ?`,
+      [payload.active, payload.round, payload.turnIndex, payload.name, J(combatants),
+        now(), now(), req.campaignId]);
   } else {
     await run('INSERT INTO combat (campaign_id, active, round, turn_index, name, combatants, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
       [req.campaignId, payload.active, payload.round, payload.turnIndex, payload.name, J(combatants), now()]);

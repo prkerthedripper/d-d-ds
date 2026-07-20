@@ -1,5 +1,5 @@
 import { state, api, bindEvents, setRenderer, render, loadMe, initSocket, joinSocket, fail } from './core.js';
-import { gateView, lobbyView, shellView, autoOpen } from './views.js';
+import { gateView, lobbyView, shellView, autoOpen, tickTurnTimer } from './views.js';
 
 const root = document.getElementById('root');
 
@@ -33,13 +33,12 @@ bindEvents(root, render);
   }
 })();
 
-// Drive the DM's turn timer. Only ticks while a fight is on screen, so the rest
-// of the app is never re-rendered underneath someone who is typing.
+// Drive the DM's turn timer by patching that one element, never by re-rendering:
+// a full re-render restarts every CSS entrance animation and made the turn popup
+// flicker in and out once a second.
 setInterval(() => {
-  if (!state.campaign || state.page !== 'combat' || !state.combat.active) return;
-  if (document.hidden) return;
-  state.clock = Date.now();
-  render();
+  if (!state.campaign || document.hidden) return;
+  tickTurnTimer();
 }, 1000);
 
 // Re-sync after the phone wakes up or the tab regains focus.

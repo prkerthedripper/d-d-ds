@@ -222,7 +222,7 @@ function turnAlertView() {
   const c = state.turnAlert;
   const sheet = c.charId ? state.characters.find((x) => x.id === c.charId) : null;
   const playerName = sheet ? nameOf(sheet.ownerId) : c.name;
-  const tab = state.turnTab || 'actions';
+  const tab = state.turnTab || 'menu';
 
   return `
   <div class="turn-alert">
@@ -237,21 +237,13 @@ function turnAlertView() {
       <p class="muted" style="margin-top:3px">${c.hp}/${c.maxHp} HP · AC ${c.ac}</p>
       ${conditionChips(c, false)}
 
-      <div class="row" style="justify-content:center;margin:14px 0 10px">
-        ${[['actions', 'Actions', 'swords'], ['attacks', 'Attack', 'sword'], ['spells', 'Spells', 'sparkles']]
-          .map(([id, label, ic]) => `
-            <button class="pill ${tab === id ? 'on' : ''}" data-act="turn-tab" data-tab="${id}">
-              ${icon(ic, { size: 13 })} ${label}</button>`).join('')}
-      </div>
-
-      <div class="turn-body">
-        ${tab === 'actions' ? actionCards(c)
-          : tab === 'attacks' ? attackCards(c, sheet)
-            : spellCards(c, sheet)}
-      </div>
+      <div class="turn-body">${turnStepView(c, sheet, tab)}</div>
 
       <div class="row" style="margin-top:16px">
-        <button class="btn grow" data-act="dismiss-turn">Close</button>
+        ${tab === 'menu'
+          ? '<button class="btn grow" data-act="dismiss-turn">Close</button>'
+          : `<button class="btn grow" data-act="turn-tab" data-tab="menu">
+              ${icon('chevron', { size: 15, cls: 'flip' })} Back</button>`}
         <button class="btn primary grow" data-act="end-my-turn">
           End my turn ${icon('arrowRight', { size: 15 })}</button>
       </div>
@@ -259,12 +251,83 @@ function turnAlertView() {
   </div>`;
 }
 
+/**
+ * One decision at a time: a short menu first, then the choices for whatever you
+ * picked. Plain wording throughout — this is the screen people use mid-game.
+ */
+function turnStepView(c, sheet, step) {
+  const foes = livingFoes(c);
+  const attacks = sheet?.attacks?.length ? sheet.attacks : (c.attacks || []);
+  const knows = (sheet?.spells || []).length;
+
+  if (step === 'attacks') {
+    if (!attacks.length) return '<p class="muted">You have no weapons set up yet. Add one on your character page.</p>';
+    if (!foes.length) return '<p class="muted">Nothing left standing to attack.</p>';
+    return `<p class="turn-hint">Pick your weapon, then who to hit.</p>${attackCards(c, sheet)}`;
+  }
+  if (step === 'spells') {
+    return `<p class="turn-hint">Pick a spell, then who to aim it at.</p>${spellCards(c, sheet)}`;
+  }
+  if (step === 'other') {
+    return `<p class="turn-hint">Other things you can do this turn.</p>${actionCards(c)}`;
+  }
+
+  // The menu.
+  return `
+  <p class="turn-hint">What do you want to do?</p>
+  <div class="stack">
+    <button class="turn-choice" data-act="turn-tab" data-tab="attacks">
+      <span class="tc-ic">${icon('sword', { size: 22 })}</span>
+      <span class="tc-text">
+        <b>Attack someone</b>
+        <i>${attacks.length ? `${attacks.length} weapon${attacks.length === 1 ? '' : 's'} · ${foes.length} enemy${foes.length === 1 ? '' : 'ies'} up` : 'No weapons yet'}</i>
+      </span>
+      ${icon('chevron', { size: 16, cls: 'flip-r' })}
+    </button>
+
+    ${knows ? `
+      <button class="turn-choice" data-act="turn-tab" data-tab="spells">
+        <span class="tc-ic">${icon('sparkles', { size: 22 })}</span>
+        <span class="tc-text">
+          <b>Cast a spell</b>
+          <i>${knows} spell${knows === 1 ? '' : 's'} you know</i>
+        </span>
+        ${icon('chevron', { size: 16, cls: 'flip-r' })}
+      </button>` : ''}
+
+    <button class="turn-choice" data-act="quick-defend" data-actor="${c.id}">
+      <span class="tc-ic">${icon('shield', { size: 22 })}</span>
+      <span class="tc-text">
+        <b>Defend yourself</b>
+        <i>Damage against you is halved until your next turn</i>
+      </span>
+    </button>
+
+    <button class="turn-choice" data-act="turn-tab" data-tab="other">
+      <span class="tc-ic">${icon('backpack', { size: 22 })}</span>
+      <span class="tc-text">
+        <b>Something else</b>
+        <i>Aim, help an ally, dodge, grab or shove something</i>
+      </span>
+      ${icon('chevron', { size: 16, cls: 'flip-r' })}
+    </button>
+  </div>`;
+}
+
+on('quick-defend', async (el) => {
+  await api('POST', `/api/campaigns/${state.campaign.id}/combat/action`, {
+    actorId: el.dataset.actor, actionId: 'defend',
+  });
+  toast('Defending — incoming damage halved');
+});
+
 const livingFoes = (me) => state.combat.combatants.filter((x) => x.id !== me.id && x.hp > 0 && x.type === 'enemy');
 const livingAllies = (me) => state.combat.combatants.filter((x) => x.id !== me.id && x.hp > 0 && x.type !== 'enemy');
 
 /** The tactical action cards everyone gets. */
 function actionCards(c) {
-  const actions = state.srd.actions || [];
+  // Quick/Power live under "Attack someone", so they are not repeated here.
+  const actions = (state.srd.actions || []).filter((a) => !['quick', 'power'].includes(a.id));
   return `<div class="action-grid">
     ${actions.map((a) => `
       <button class="action-card" data-act="pick-action" data-id="${a.id}" data-actor="${c.id}">
@@ -1061,6 +1124,27 @@ function combatView() {
   </div>`;
 }
 
+/** Elapsed time on the current turn, as m:ss. */
+function turnClock() {
+  const started = state.combat.turnStartedAt;
+  // A combat saved before this field existed has 0 here, which would read as
+  // decades. Treat anything missing or absurd as a turn that just started.
+  const elapsed = started ? Date.now() - started : 0;
+  const secs = elapsed > 0 && elapsed < 6 * 60 * 60 * 1000 ? Math.floor(elapsed / 1000) : 0;
+  return `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')}`;
+}
+
+/**
+ * Update just the timer text once a second. Re-rendering the whole app for this
+ * would restart every entrance animation — which made the turn popup flicker.
+ */
+export function tickTurnTimer() {
+  const el = document.querySelector('[data-turn-timer]');
+  if (!el) return;
+  el.textContent = turnClock();
+  el.parentElement?.classList.toggle('slow', turnClock() >= '1:30');
+}
+
 /**
  * Whose turn it is, from the viewer's point of view: your own call to arms,
  * "waiting for Parker" for everyone else, plus a timer and Skip for the DM.
@@ -1076,9 +1160,7 @@ function whoseTurnBanner() {
   const player = sheet ? nameOf(sheet.ownerId) : null;
   const mine = sheet && sheet.ownerId === state.user.id;
 
-  const secs = turnStartedAt ? Math.floor((state.clock - turnStartedAt) / 1000) : 0;
-  const slow = secs > 90;
-  const timer = `${Math.floor(secs / 60)}:${String(secs % 60).padStart(2, '0')}`;
+  const timer = turnClock();
 
   return `
   <div class="turn-banner ${mine ? 'mine' : ''}">
@@ -1091,8 +1173,8 @@ function whoseTurnBanner() {
     </div>
     ${mine ? `<button class="btn sm primary" data-act="open-turn">Take my turn</button>` : ''}
     ${isDM() ? `
-      <span class="turn-timer ${slow ? 'slow' : ''}" title="Time on this turn">
-        ${icon('hourglass', { size: 13 })} ${timer}</span>
+      <span class="turn-timer" title="Time on this turn">
+        ${icon('hourglass', { size: 13 })}<b data-turn-timer>${timer}</b></span>
       <button class="btn sm" data-act="skip-turn">Skip</button>` : ''}
   </div>`;
 }
