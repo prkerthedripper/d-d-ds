@@ -672,6 +672,9 @@ app.put('/api/campaigns/:id/combat', auth, requireMember, requireDM, wrap(async 
   };
 
   const exists = await get('SELECT campaign_id FROM combat WHERE campaign_id = ?', [req.campaignId]);
+  // A fight going from idle to live gets a screen-wide "Roll Initiative" flourish.
+  const prev = await loadCombat(req.campaignId);
+  const justStarted = payload.active && !prev.active;
   if (exists) {
     await run(
       `UPDATE combat SET active = ?, round = ?, turn_index = ?, name = ?, combatants = ?,
@@ -684,6 +687,7 @@ app.put('/api/campaigns/:id/combat', auth, requireMember, requireDM, wrap(async 
   }
 
   emit(req.campaignId, 'combat', await loadCombat(req.campaignId));
+  if (justStarted) sendFx(req.campaignId, { type: 'initiative', name: payload.name });
   res.json({ ok: true });
 }));
 
@@ -826,9 +830,10 @@ app.post('/api/campaigns/:id/combat/attack', auth, requireMember, wrap(async (re
   await persistCombat(req.campaignId, combat);
   emit(req.campaignId, 'characters', await loadCharacters(req.campaignId));
   sendFx(req.campaignId, {
-    type: result.fx, actorId: attacker.id, targetId: target.id,
+    type: result.fx, dmgType: attack.type, actorId: attacker.id, targetId: target.id,
     damage: result.damage, crit: result.hitRoll.crit, hit: result.hit, label: attack.name,
   });
+  if (result.hit && target.hp === 0) sendFx(req.campaignId, { type: 'down', name: target.name });
   await logCombat(req.campaignId, req.user.id, line);
 
   res.json({
@@ -935,7 +940,7 @@ app.post('/api/campaigns/:id/combat/action', auth, requireMember, wrap(async (re
         + `(${result.hitRoll.fumble ? 'natural 1' : `${result.hitRoll.total} vs AC ${target.ac}`}).`;
     }
     if (result.notes.length) line += ` [${result.notes.join(', ')}]`;
-    fx = { ...fx, type: result.fx, damage: result.damage, crit: result.hitRoll.crit, hit: result.hit };
+    fx = { ...fx, type: result.fx, dmgType: attack.type, damage: result.damage, crit: result.hitRoll.crit, hit: result.hit };
   } else if (action.self) {
     addCondition(actor, action.self.condition, action.self.turns);
     line = `${actor.name} takes the ${action.name} — ${action.blurb}`;
@@ -952,6 +957,9 @@ app.post('/api/campaigns/:id/combat/action', auth, requireMember, wrap(async (re
   await persistCombat(req.campaignId, combat);
   emit(req.campaignId, 'characters', await loadCharacters(req.campaignId));
   sendFx(req.campaignId, fx);
+  if (fx.hit && fx.damage && target && target.hp === 0) {
+    sendFx(req.campaignId, { type: 'down', name: target.name });
+  }
   await logCombat(req.campaignId, req.user.id, line);
 
   res.json({ ok: true, line, fx });
@@ -1022,9 +1030,12 @@ app.post('/api/campaigns/:id/combat/cast', auth, requireMember, wrap(async (req,
   await persistCombat(req.campaignId, combat);
   emit(req.campaignId, 'characters', await loadCharacters(req.campaignId));
   sendFx(req.campaignId, {
-    type: result.fx, spell: spell.name, actorId: caster.id, targetId: target?.id,
+    type: result.fx, dmgType: effect.type, spell: spell.name, actorId: caster.id, targetId: target?.id,
     damage: result.damage, heal: result.heal, label: spell.name,
   });
+  if (result.damage && target && target.hp === 0) {
+    sendFx(req.campaignId, { type: 'down', name: target.name });
+  }
   await logCombat(req.campaignId, req.user.id, bits.join(' '));
 
   res.json({ ok: true, ...result });
