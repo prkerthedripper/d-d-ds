@@ -521,6 +521,12 @@ function actionCards(c) {
   </div>`;
 }
 
+/** How many weapon attacks this combatant has left this turn. */
+function attacksLeft(c, sheet) {
+  const per = Math.max(1, sheet?.attacksPerTurn || c.attacksPerTurn || 1);
+  return per - (c.attacksUsed || 0);
+}
+
 /** Weapon attacks — pick the weapon, then the target. */
 function attackCards(c, sheet) {
   const attacks = sheet?.attacks?.length ? sheet.attacks : (c.attacks || []);
@@ -528,7 +534,17 @@ function attackCards(c, sheet) {
   if (!attacks.length) return '<p class="muted">No attacks on your sheet yet — add one on your character page.</p>';
   if (!foes.length) return '<p class="muted">Nothing left standing to attack.</p>';
 
-  return `<div class="stack">
+  const per = Math.max(1, sheet?.attacksPerTurn || c.attacksPerTurn || 1);
+  const left = attacksLeft(c, sheet);
+  if (left <= 0) {
+    return `<p class="muted">You've used ${per > 1 ? `all ${per} of your attacks` : 'your attack'} this turn. Cast a spell, do something else, or end your turn.</p>`;
+  }
+
+  const leftNote = per > 1
+    ? `<p class="turn-hint">You can attack <b>${left}</b> more time${left === 1 ? '' : 's'} this turn.</p>`
+    : '';
+
+  return `${leftNote}<div class="stack">
     ${attacks.slice(0, 5).map((a, ai) => `
       <div class="card" style="padding:10px">
         <div style="font-weight:650;font-size:14px;margin-bottom:7px">
@@ -1466,6 +1482,9 @@ function initRow(c, i, turnIndex, dm) {
   // A player may only attack on their own turn; the DM acts whenever.
   const myTurn = i === turnIndex % Math.max(1, state.combat.combatants.length);
   const canAttack = dm || (mine && myTurn);
+  // Players are held to their attacks-per-turn allowance; the DM is not.
+  const outOfAttacks = !dm && attacksLeft(c, sheet) <= 0;
+  const per = Math.max(1, sheet?.attacksPerTurn || c.attacksPerTurn || 1);
 
   return `
   <div class="init-row ${i === turnIndex ? 'turn' : ''} ${c.hp <= 0 ? 'dead' : ''} ${targeting ? 'targetable' : ''}"
@@ -1488,14 +1507,17 @@ function initRow(c, i, turnIndex, dm) {
         <button class="btn sm" style="margin-top:6px" data-act="roll-init-one" data-id="${c.id}">
           ${icon('dice', { size: 13 })} Roll initiative</button>` : ''}
 
-      ${!needsInit && canAttack && c.hp > 0 && attacks.length ? `
+      ${!needsInit && canAttack && c.hp > 0 && attacks.length && !outOfAttacks ? `
         <div class="row" style="margin-top:6px">
           ${attacks.map((a, ai) => `
             <button class="btn sm" data-act="begin-attack" data-id="${c.id}" data-index="${ai}">
               ${icon('sword', { size: 13 })} ${esc(a.name)}
               <span class="tiny mono">${signed(a.toHit)} · ${esc(a.damage)}</span>
             </button>`).join('')}
-        </div>`
+        </div>
+        ${per > 1 ? `<div class="tiny" style="margin-top:4px;color:var(--ink-3)">${attacksLeft(c, sheet)} of ${per} attacks left this turn</div>` : ''}`
+      : (!needsInit && mine && myTurn && c.hp > 0 && outOfAttacks)
+        ? '<div class="tiny" style="margin-top:6px">You’ve used your attack this turn.</div>'
       : (!needsInit && mine && !myTurn && c.hp > 0)
         ? '<div class="tiny" style="margin-top:6px">Wait for your turn to act.</div>' : ''}
 
@@ -1544,6 +1566,7 @@ on('add-party', () => saveCombat({
         id: crypto.randomUUID(), charId: c.id, name: c.name, sub: c.class, type: 'pc',
         init: null, hp: c.hp, maxHp: c.maxHp, ac: c.ac, initBonus: c.initBonus,
         conditions: c.conditions || [], attacks: c.attacks || [],
+        attacksPerTurn: c.attacksPerTurn || 1, attacksUsed: 0,
       })),
   ],
 }));
@@ -2261,7 +2284,12 @@ function charFormModal(c) {
       <label class="field grow"><span>Speed</span><input name="speed" type="number" value="${c?.speed ?? 30}" /></label>
       <label class="field grow"><span>Init bonus</span><input name="initBonus" type="number" value="${c?.initBonus ?? 0}" /></label>
       <label class="field grow"><span>Prof bonus</span><input name="profBonus" type="number" value="${c?.profBonus ?? 2}" /></label>
+      <label class="field grow"><span>Attacks / turn</span>
+        <input name="attacksPerTurn" type="number" min="1" max="4" value="${c?.attacksPerTurn ?? 1}" /></label>
     </div>
+    <p class="tiny" style="margin:-4px 0 4px;color:var(--ink-3)">
+      Most characters attack once a turn. Set this to 2 if they have Extra Attack (Fighters, Barbarians… from level 5).
+    </p>
 
     <p class="tiny" style="margin-bottom:6px">ABILITY SCORES</p>
     <div class="row">
@@ -2297,6 +2325,7 @@ on('save-char', async (form) => {
     name: val(form, 'name'), race: val(form, 'race'), class: val(form, 'class'),
     level: num(form, 'level'), maxHp: num(form, 'maxHp'), ac: num(form, 'ac'),
     speed: num(form, 'speed'), initBonus: num(form, 'initBonus'), profBonus: num(form, 'profBonus'),
+    attacksPerTurn: Math.max(1, Math.min(4, num(form, 'attacksPerTurn') || 1)),
     stats, slots,
   };
 

@@ -135,6 +135,7 @@ function shapeCharacter(row, items = []) {
     conditions: P(row.conditions, []),
     attacks: P(row.attacks, []),
     spellAbility: row.spell_ability || 'wis',
+    attacksPerTurn: Math.max(1, Math.min(4, row.attacks_per_turn || 1)),
     notes: row.notes,
     portrait: row.portrait,
     items: items.map((i) => ({
@@ -359,7 +360,7 @@ app.delete('/api/campaigns/:id/members/:userId', auth, requireMember, requireDM,
 const CHAR_FIELDS = {
   name: 'name', race: 'race', class: 'class', level: 'level', hp: 'hp', maxHp: 'max_hp',
   tempHp: 'temp_hp', ac: 'ac', speed: 'speed', initBonus: 'init_bonus', profBonus: 'prof_bonus',
-  notes: 'notes', portrait: 'portrait', spellAbility: 'spell_ability',
+  notes: 'notes', portrait: 'portrait', spellAbility: 'spell_ability', attacksPerTurn: 'attacks_per_turn',
 };
 const CHAR_JSON = {
   stats: 'stats', slots: 'slots', spells: 'spells', coins: 'coins',
@@ -820,10 +821,21 @@ app.post('/api/campaigns/:id/combat/attack', auth, requireMember, wrap(async (re
   const attack = available[Number(req.body.index) || 0];
   if (!attack) throw bad('That attack does not exist');
 
+  // One attack a turn, unless the character has Extra Attack (attacks per turn > 1).
+  // The DM acts freely; the rule is there to keep players honest.
+  const perTurn = Math.max(1, sheet?.attacksPerTurn || attacker.attacksPerTurn || 1);
+  const used = Number(attacker.attacksUsed) || 0;
+  if (req.membership.role !== 'dm' && used >= perTurn) {
+    throw bad(perTurn > 1
+      ? `You've already made all ${perTurn} of your attacks this turn.`
+      : 'You already attacked this turn — end your turn or do something else.', 403);
+  }
+
   const mode = ['advantage', 'disadvantage'].includes(req.body.mode) ? req.body.mode : 'normal';
 
   // Same engine as the action cards, so conditions apply here too.
   const result = resolveAttack({ attacker, target, attack, action: null, mode });
+  attacker.attacksUsed = used + 1;
 
   let line;
   if (result.hit) {
@@ -877,6 +889,9 @@ app.post('/api/campaigns/:id/combat/next-turn', auth, requireMember, wrap(async 
   combat.turnIndex = index;
   if (wrapped) combat.round += 1;
   combat.turnStartedAt = now();
+
+  // The finished combatant's attack allowance refreshes for their next turn.
+  current.attacksUsed = 0;
 
   await persistCombat(req.campaignId, combat);
 
@@ -993,7 +1008,17 @@ app.post('/api/campaigns/:id/combat/action', auth, requireMember, wrap(async (re
     const attack = available[Number(req.body.index) || 0];
     if (!attack) throw bad('That character has no attacks yet');
 
+    // Enforce the one-attack-a-turn limit here too (Extra Attack raises it).
+    const perTurn = Math.max(1, sheet?.attacksPerTurn || actor.attacksPerTurn || 1);
+    const used = Number(actor.attacksUsed) || 0;
+    if (req.membership.role !== 'dm' && used >= perTurn) {
+      throw bad(perTurn > 1
+        ? `You've already made all ${perTurn} of your attacks this turn.`
+        : 'You already attacked this turn — end your turn or do something else.', 403);
+    }
+
     const result = resolveAttack({ attacker: actor, target, attack, action, mode: req.body.mode });
+    actor.attacksUsed = used + 1;
 
     if (result.hit) {
       await applyHp(req.campaignId, target, -result.damage);
