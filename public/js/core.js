@@ -35,6 +35,9 @@ export const state = {
   turnTab: 'actions',
   pendingAction: null,
   turnAlertShown: false,
+  simple: localStorage.getItem('dndds-simple') !== '0', // plain-language mode, on by default
+  rollRequests: [], // pending "the DM wants a roll" prompts for this user
+  economy: null, // action/bonus tracker for the current turn
 };
 
 // ---------------------------------------------------------------- api
@@ -379,6 +382,16 @@ export function initSocket() {
 
   // Combat animations are pushed to everyone watching the fight.
   socket.on('fx', (fx) => { playFx(fx); });
+
+  // "The DM wants a roll" — queue it if it is addressed to this player.
+  socket.on('rollreq', (reqObj) => {
+    const mine = reqObj.to === 'all' || reqObj.to === state.user?.id;
+    if (!mine) return;
+    state.rollRequests = [reqObj, ...state.rollRequests.filter((r) => r.id !== reqObj.id)].slice(0, 6);
+    chime();
+    if (navigator.vibrate) navigator.vibrate(120);
+    render();
+  });
 
   socket.on('presence', (ids) => { state.online = ids; render(); });
   socket.on('connect', () => { if (state.campaign) socket.emit('join', state.campaign.id); });

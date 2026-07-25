@@ -1044,3 +1044,92 @@ td { padding: 13px 16px; border-top: 1px solid var(--line-soft); font-size: 14px
   .turn-card { padding: 20px 16px; }
   .turn-card h1 { font-size: 23px; }
 }
+
+/* ---------------------------------------------------------------- guided play */
+
+/* tappable glossary term */
+.term {
+  background: none; border: 0; padding: 0; cursor: pointer;
+  color: var(--accent); font: inherit; font-weight: 650;
+  text-decoration: underline dotted; text-underline-offset: 2px;
+}
+.term:hover { color: var(--accent-hover); }
+.term-tag { cursor: pointer; }
+.term-tag:hover { filter: brightness(1.1); }
+
+/* success badge in the roll log */
+.ok-tag { background: color-mix(in srgb, var(--green) 18%, transparent); color: var(--green); }
+
+/* "Why did I roll this?" */
+.why { margin-top: 4px; }
+.why summary {
+  cursor: pointer; font-size: 11.5px; color: var(--accent);
+  list-style: none; width: max-content;
+}
+.why summary::-webkit-details-marker { display: none; }
+.why summary::before { content: '▸ '; }
+.why[open] summary::before { content: '▾ '; }
+.why-body {
+  margin-top: 5px; padding: 8px 10px; border-radius: 8px;
+  background: var(--panel-2); border: 1px solid var(--line);
+  font-size: 12px; line-height: 1.5; color: var(--ink-2);
+}
+.why-body b { color: var(--ink); }
+
+/* ---- DM roll-request prompt ---- */
+.rollreq-wrap {
+  position: fixed; inset: 0; z-index: 96;
+  display: flex; align-items: flex-start; justify-content: center;
+  padding: 18px; pointer-events: none;
+}
+.rollreq {
+  pointer-events: auto; margin-top: 6dvh;
+  width: 100%; max-width: 420px; text-align: center;
+  background: var(--panel); border: 2px solid var(--accent); border-radius: 18px;
+  padding: 20px 20px 18px; box-shadow: 0 22px 60px rgba(0, 0, 0, .45);
+  animation: rise .24s cubic-bezier(.2, .9, .3, 1.15);
+}
+.rr-flag {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 4px 12px; border-radius: 999px; margin-bottom: 8px;
+  background: var(--accent-soft); color: var(--accent);
+  font-size: 11px; font-weight: 700; letter-spacing: .8px; text-transform: uppercase;
+}
+.rollreq h2 { font-family: var(--serif); font-size: 22px; }
+.rr-note { font-size: 13px; color: var(--ink-2); margin-top: 4px; }
+.rr-bonus {
+  margin-top: 12px; padding: 9px; border-radius: 10px;
+  background: var(--panel-2); border: 1px solid var(--line); font-size: 14px;
+}
+.rr-bonus b { color: var(--accent); font-size: 17px; }
+
+/* ---- action economy strip ---- */
+.eco-row { display: flex; gap: 7px; justify-content: center; margin: 12px 0 4px; flex-wrap: wrap; }
+.eco {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 6px 11px; border-radius: 999px;
+  border: 1px solid var(--line); background: var(--panel-2);
+  font-size: 12px; font-weight: 650; color: var(--ink-2);
+}
+.eco.used {
+  color: var(--green); border-color: color-mix(in srgb, var(--green) 45%, transparent);
+  background: color-mix(in srgb, var(--green) 12%, transparent);
+}
+
+/* ---- death saves ---- */
+.death { text-align: center; padding: 6px 0 2px; }
+.death-dead { color: var(--red); font-family: var(--serif); }
+.death-stable { color: var(--accent); font-family: var(--serif); }
+.death-pips {
+  display: flex; gap: 26px; justify-content: center; margin-top: 12px;
+}
+.pips { display: inline-flex; gap: 5px; }
+.pip {
+  width: 13px; height: 13px; border-radius: 50%;
+  border: 2px solid var(--line-soft); background: transparent;
+}
+.pip.good.on { background: var(--green); border-color: var(--green); }
+.pip.bad.on { background: var(--red); border-color: var(--red); }
+.death-inline { display: flex; align-items: center; gap: 10px; margin-top: 6px; }
+.death-inline .pips { gap: 4px; }
+.death-inline .pip { width: 10px; height: 10px; }

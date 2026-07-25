@@ -20,7 +20,48 @@ export const NAV = [
 ];
 
 const ABILITIES = [['str', 'STR'], ['dex', 'DEX'], ['con', 'CON'], ['int', 'INT'], ['wis', 'WIS'], ['cha', 'CHA']];
+const ABILITY_NAME = { str: 'Strength', dex: 'Dexterity', con: 'Constitution', int: 'Intelligence', wis: 'Wisdom', cha: 'Charisma' };
 const COINS = [['pp', 'Platinum'], ['gp', 'Gold'], ['ep', 'Electrum'], ['sp', 'Silver'], ['cp', 'Copper']];
+
+// Plain-language definitions for the "What does this mean?" helper. Kept to a
+// sentence or two on purpose — this is a nudge, not a rulebook.
+const GLOSSARY = {
+  'Armor Class': 'How hard you are to hit. An attacker has to roll this number or higher to land a hit on you.',
+  'AC': 'Armor Class — how hard you are to hit. An attacker has to roll this number or higher to hit you.',
+  'Saving Throw': 'A roll to resist something nasty — a fireball, poison, a trap. Roll a d20 and add the matching ability.',
+  'Ability Check': 'A roll to see if you can do something tricky. Roll a d20 and add the ability that fits, like Strength to lift a gate.',
+  'Advantage': 'Roll two d20s and use the higher one. It means the odds are in your favour.',
+  'Disadvantage': 'Roll two d20s and use the lower one. Something is making this harder for you.',
+  'Bonus Action': 'A small, quick extra thing you can do on your turn on top of your main action — like a fast healing word.',
+  'Reaction': 'A single quick response you can make even when it is not your turn, like swinging at an enemy who runs past.',
+  'Concentration': 'Some spells need focus to keep going. If you take damage you must roll to hold it, and you can only concentrate on one spell at a time.',
+  'Initiative': 'The roll at the start of a fight that decides turn order. Higher goes first.',
+  'DC': 'Difficulty Class — the number you need to reach on a roll to succeed. The DM sets it.',
+  'Proficiency Bonus': 'A bonus you add to things your character is trained in. It grows as you level up.',
+  'Modifier': 'The small number you add to a d20 roll, based on how good your character is at that ability.',
+  'Cantrip': 'A simple spell you can cast as often as you like — it never uses a spell slot.',
+  'Spell Slot': 'A charge for casting your bigger spells. You get a limited number, and a long rest refills them.',
+  'Hit Points': 'Your health. At 0 you fall unconscious and start making death saves.',
+  'Death Save': 'When you are down at 0 HP, you roll a d20 each turn. 10 or higher succeeds. Three successes and you stabilise; three failures and you die.',
+  'Critical Hit': 'A natural 20 on an attack. It always hits and you roll your damage dice twice.',
+  'Temp HP': 'Temporary hit points — a buffer that soaks up damage before your real HP, and does not stack.',
+  'Long Rest': 'About 8 hours of rest. It restores your HP and spell slots.',
+  'Dodge': 'Spend your action to focus on defence — attacks against you have disadvantage until your next turn.',
+};
+
+/** A tappable term that opens its plain-language definition. */
+function term(word, label) {
+  return `<button class="term" data-act="glossary" data-term="${esc(word)}">${esc(label || word)}</button>`;
+}
+
+on('glossary', (el) => { state.modal = { name: 'glossary', term: el.dataset.term }; render(); });
+
+on('toggle-simple', () => {
+  state.simple = !state.simple;
+  localStorage.setItem('dndds-simple', state.simple ? '1' : '0');
+  toast(state.simple ? 'Simple mode on — plain language' : 'Advanced mode on — full D&D terms');
+  render();
+});
 
 const selected = () => state.characters.find((c) => c.id === state.selectedCharId)
   || myChars()[0] || state.characters[0] || null;
@@ -213,16 +254,152 @@ export function shellView() {
         </button>`).join('')}
     </nav>
   </div>
+  ${state.rollRequests.length ? rollRequestView() : ''}
   ${state.turnAlert ? turnAlertView() : ''}
   ${state.modal ? modalView() : ''}`;
 }
 
+// ---------------------------------------------------------------- roll requests
+
+/** The prompt a player sees when the DM asks them for a check, save or init. */
+function rollRequestView() {
+  const req = state.rollRequests[0];
+  const ch = myChars()[0] || state.characters.find((c) => c.ownerId === state.user.id) || null;
+  const skills = state.srd.skills || {};
+
+  // Which ability governs this roll, and the bonus from the player's sheet.
+  let ability = req.ability || 'wis';
+  if (req.skill && skills[req.skill]) ability = skills[req.skill];
+  const abMod = ch ? mod(ch.stats?.[ability]) : 0;
+  let bonus = abMod + (req.proficient ? (ch?.profBonus || 2) : 0);
+  if (req.kind === 'init') bonus = ch ? (ch.initBonus ?? abMod) : 0;
+
+  const title = req.kind === 'save'
+    ? `${ABILITY_NAME[ability] || 'Ability'} saving throw`
+    : req.kind === 'init'
+      ? 'Roll for initiative'
+      : `${req.skill || ABILITY_NAME[ability] || 'Ability'} check`;
+
+  const label = req.label || title;
+  const glossTerm = req.kind === 'save' ? 'Saving Throw' : req.kind === 'init' ? 'Initiative' : 'Ability Check';
+  const modeNote = req.mode === 'advantage' ? ' with advantage'
+    : req.mode === 'disadvantage' ? ' with disadvantage' : '';
+
+  return `
+  <div class="rollreq-wrap">
+    <div class="rollreq">
+      <div class="rr-flag">${icon('dice', { size: 14 })} The DM wants a roll</div>
+      <h2>${esc(title)}${modeNote}</h2>
+      ${req.note ? `<p class="rr-note">${esc(req.note)}</p>` : `<p class="rr-note">${state.simple ? 'Tap Roll — the app adds your bonus for you.' : term(glossTerm, 'What is this?')}</p>`}
+      ${ch ? `<div class="rr-bonus">Your bonus: <b>${signed(bonus)}</b>${req.secret ? ' · <span class="tiny">secret — only the DM sees it</span>' : ''}</div>`
+        : '<p class="rr-note">Make a character first so the app knows your bonus.</p>'}
+      <div class="row" style="margin-top:14px">
+        <button class="btn primary grow" data-act="answer-roll"
+          data-id="${req.id}" data-bonus="${bonus}" data-label="${esc(label)}">
+          ${icon('dice', { size: 16 })} Roll${modeNote}</button>
+        <button class="btn" data-act="dismiss-roll" data-id="${req.id}">Later</button>
+      </div>
+    </div>
+  </div>`;
+}
+
+on('answer-roll', async (el) => {
+  const req = state.rollRequests.find((r) => r.id === el.dataset.id);
+  if (!req) return;
+  state.rollRequests = state.rollRequests.filter((r) => r.id !== req.id);
+  render();
+
+  const bonus = Number(el.dataset.bonus) || 0;
+  let formula = `1d20${signed(bonus)}`;
+  if (req.mode === 'advantage') formula = formula.replace(/^1d20/, '2d20kh1');
+  if (req.mode === 'disadvantage') formula = formula.replace(/^1d20/, '2d20kl1');
+
+  const r = await api('POST', `/api/campaigns/${state.campaign.id}/roll-requests/respond`, {
+    formula, label: el.dataset.label, dc: req.dc, secret: req.secret,
+  });
+  const p = r.roll?.pass;
+  toast(p === true ? `Success! Rolled ${r.roll.total}`
+    : p === false ? `Not enough — rolled ${r.roll.total}`
+      : `Rolled ${r.roll.total}`, p === true ? 'ok' : p === false ? 'err' : '');
+});
+
+on('dismiss-roll', (el) => {
+  state.rollRequests = state.rollRequests.filter((r) => r.id !== el.dataset.id);
+  render();
+});
+
+// ---------------------------------------------------------------- action economy
+
+const turnKey = (c) => `${state.combat.round}:${state.combat.turnIndex}:${c?.id}`;
+
+/** Reset the tracker when a new turn begins, then read/update it. */
+function economyFor(c) {
+  const key = turnKey(c);
+  if (!state.economy || state.economy.key !== key) {
+    state.economy = { key, action: false, bonus: false };
+  }
+  return state.economy;
+}
+function useEconomy(kind) {
+  if (state.economy) state.economy[kind] = true;
+}
+
+/** The three-slot "what have I used this turn" strip. */
+function economyStrip(c) {
+  const e = economyFor(c);
+  const speed = (c.charId && state.characters.find((x) => x.id === c.charId)?.speed) || c.speed || 30;
+  const slot = (used, ic, name) => `
+    <div class="eco ${used ? 'used' : ''}">
+      ${icon(used ? 'check' : ic, { size: 14 })}
+      <span>${name}</span>
+    </div>`;
+  return `<div class="eco-row">
+    ${slot(e.action, 'sword', state.simple ? 'Main thing' : 'Action')}
+    ${slot(e.bonus, 'zap', state.simple ? 'Quick thing' : 'Bonus')}
+    <div class="eco"><span>${icon('arrowRight', { size: 14 })}</span><span>${speed} ft move</span></div>
+  </div>`;
+}
+
+// ---------------------------------------------------------------- death saves
+
+/** The downed-at-0-HP screen: pips and a death-save button. */
+function deathSaveView(c) {
+  const ds = c.deathSaves || { s: 0, f: 0 };
+  const pip = (on, cls) => `<span class="pip ${cls} ${on ? 'on' : ''}"></span>`;
+  const row = (n, cls) => Array.from({ length: 3 }, (_, i) => pip(i < n, cls)).join('');
+
+  if (c.dead) return `<div class="death"><h3 class="death-dead">${esc(c.name)} has died.</h3></div>`;
+  if (c.stable) return `<div class="death"><h3 class="death-stable">Stable</h3>
+    <p class="turn-hint">${esc(c.name)} is holding on at 0 HP. A little healing brings them back.</p></div>`;
+
+  return `
+  <div class="death">
+    <p class="turn-hint">${esc(c.name)} is down at 0 HP. Roll a ${term('Death Save', 'death save')} — 10 or higher succeeds.</p>
+    <div class="death-pips">
+      <div><span class="tiny">Successes</span><div class="pips">${row(ds.s, 'good')}</div></div>
+      <div><span class="tiny">Failures</span><div class="pips">${row(ds.f, 'bad')}</div></div>
+    </div>
+    <button class="btn primary wide" style="margin-top:14px" data-act="death-save" data-id="${c.id}">
+      ${icon('dice', { size: 16 })} Roll death save</button>
+  </div>`;
+}
+
+on('death-save', async (el) => {
+  const r = await api('POST', `/api/campaigns/${state.campaign.id}/combat/death-save`, { combatantId: el.dataset.id });
+  toast(r.revived ? 'Natural 20 — back up with 1 HP!'
+    : r.dead ? 'Three failures — they have died.'
+      : r.stable ? 'Stable at 0 HP.'
+        : `Death save: ${r.roll}`, r.revived || r.stable ? 'ok' : r.dead ? 'err' : '');
+});
+
 /** Full-screen turn takeover: action cards, weapons and spells all in one place. */
 function turnAlertView() {
-  const c = state.turnAlert;
+  // Re-read the live combatant so HP / downed state stay fresh across patches.
+  const c = state.combat.combatants.find((x) => x.id === state.turnAlert.id) || state.turnAlert;
   const sheet = c.charId ? state.characters.find((x) => x.id === c.charId) : null;
   const playerName = sheet ? nameOf(sheet.ownerId) : c.name;
   const tab = state.turnTab || 'menu';
+  const downed = c.downed || c.dead || c.stable;
 
   // The fly-in plays once per turn. Without this any re-render — a dice roll from
   // someone else, a HP change — would restart it and the popup would flash.
@@ -240,8 +417,9 @@ function turnAlertView() {
       <h2 style="font-size:20px">${esc(c.name)}</h2>
       <p class="muted" style="margin-top:3px">${c.hp}/${c.maxHp} HP · AC ${c.ac}</p>
       ${conditionChips(c, false)}
+      ${downed ? '' : economyStrip(c)}
 
-      <div class="turn-body">${turnStepView(c, sheet, tab)}</div>
+      <div class="turn-body">${downed ? deathSaveView(c) : turnStepView(c, sheet, tab)}</div>
 
       <div class="row" style="margin-top:16px">
         ${tab === 'menu'
@@ -322,6 +500,7 @@ on('quick-defend', async (el) => {
   await api('POST', `/api/campaigns/${state.campaign.id}/combat/action`, {
     actorId: el.dataset.actor, actionId: 'defend',
   });
+  useEconomy('action');
   toast('Defending — incoming damage halved');
 });
 
@@ -402,8 +581,8 @@ function spellCards(c, sheet) {
           <div>
             <span style="font-weight:650;font-size:14px">${esc(spell.name)}</span>
             <span class="tag grey">${spell.level === 0 ? 'Cantrip' : `Lv ${spell.level}`}</span>
-            ${fx?.bonusAction ? '<span class="tag">Bonus</span>' : ''}
-            ${fx?.concentration ? '<span class="tag grey">Conc.</span>' : ''}
+            ${fx?.bonusAction ? `<span class="tag term-tag" data-act="glossary" data-term="Bonus Action">Bonus</span>` : ''}
+            ${fx?.concentration ? `<span class="tag grey term-tag" data-act="glossary" data-term="Concentration">Conc.</span>` : ''}
           </div>
           <span class="tiny">${spell.level === 0 ? 'at will' : `${Math.max(0, left)} slot${left === 1 ? '' : 's'}`}</span>
         </div>
@@ -455,6 +634,7 @@ on('pick-action', async (el) => {
   await api('POST', `/api/campaigns/${state.campaign.id}/combat/action`, {
     actorId: el.dataset.actor, actionId: action.id,
   });
+  useEconomy(action.bonusAction ? 'bonus' : 'action');
   toast(action.name);
 });
 
@@ -464,6 +644,9 @@ on('cast', async (el) => {
     spellName: el.dataset.spell,
     targetId: el.dataset.target || undefined,
   });
+  // Bonus-action spells (like Healing Word) spend the quick slot, not the main one.
+  const eff = (state.srd.spellEffects || {})[el.dataset.spell];
+  useEconomy(eff?.bonusAction ? 'bonus' : 'action');
   toast(r.damage ? `${el.dataset.spell}: ${r.damage} damage`
     : r.heal ? `${el.dataset.spell}: healed ${r.heal}`
       : `${el.dataset.spell} cast`);
@@ -478,6 +661,7 @@ on('turn-attack', async (el) => {
     index: Number(el.dataset.index),
     mode: state.rollMode || 'normal',
   });
+  useEconomy('action');
   toast(r.hit ? `${r.crit ? 'CRIT! ' : ''}Hit for ${r.damage}` : `Miss (rolled ${r.attackRoll})`);
 });
 
@@ -1046,8 +1230,12 @@ function diceView() {
       <div class="roll-line">
         <div class="roll-total">${r.total}</div>
         <div class="grow">
-          <div style="font-size:13.5px"><strong>${esc(nameOf(r.userId))}</strong>${r.label ? ` — ${esc(r.label)}` : ''}</div>
+          <div style="font-size:13.5px"><strong>${esc(nameOf(r.userId))}</strong>${r.label ? ` — ${esc(r.label)}` : ''}
+            ${r.pass === true ? '<span class="tag ok-tag">Success</span>' : r.pass === false ? '<span class="tag red">Failed</span>' : ''}
+            ${r.secret ? '<span class="tag grey">secret</span>' : ''}
+          </div>
           <div class="tiny mono">${esc(r.formula)} → ${esc(r.detail.replace(/~~/g, ''))}</div>
+          <details class="why"><summary>Why ${r.total}?</summary>${rollWhy(r)}</details>
         </div>
         <span class="tiny">${ago(r.createdAt)}</span>
       </div>`).join('')
@@ -1080,6 +1268,29 @@ async function sendRoll(formula, label) {
 on('do-roll', (form) => sendRoll(val(form, 'formula'), val(form, 'label')));
 on('roll-quick', (el) => sendRoll(el.dataset.formula, el.dataset.label));
 
+/** Plain-language "here's how that number happened" for a roll-log entry. */
+function rollWhy(r) {
+  // detail looks like "[7, 3] + 5" or "[12] + 4" — pull the dice and the flat parts apart.
+  const clean = String(r.detail || '').replace(/~~[^~]*~~/g, '').replace(/[[\]]/g, '');
+  const lines = [];
+  const diceMatch = String(r.detail || '').match(/\[([^\]]+)\]/);
+  if (diceMatch) {
+    const nums = diceMatch[1].split(',').map((s) => s.trim()).filter(Boolean);
+    lines.push(nums.length > 1
+      ? `Dice rolled: ${nums.join(', ')} (kept for this roll)`
+      : `The d20 came up <b>${nums[0]}</b>`);
+  }
+  const mods = clean.replace(/^[^+-]*/, '').trim();
+  if (mods) lines.push(`Your bonus: ${esc(mods)}`);
+  lines.push(`Total: <b>${r.total}</b>`);
+  if (r.dc != null) {
+    lines.push(r.pass
+      ? `You needed ${r.dc} — <b>success!</b>`
+      : `You needed ${r.dc} — not quite.`);
+  }
+  return `<div class="why-body">${lines.map((l) => `<div>${l}</div>`).join('')}</div>`;
+}
+
 // ---------------------------------------------------------------- combat
 
 function combatView() {
@@ -1110,6 +1321,7 @@ function combatView() {
       <button class="btn" data-act="modal" data-name="add-enemy">${icon('skull', { size: 15 })} Enemy</button>
       <button class="btn" data-act="add-party">${icon('users', { size: 15 })} Party</button>
       <button class="btn" data-act="roll-initiative-all">${icon('dice', { size: 15 })} Roll for all</button>
+      <button class="btn" data-act="modal" data-name="request-roll">${icon('target', { size: 15 })} Request roll</button>
       <button class="btn primary" data-act="next-turn">Next Turn ${icon('arrowRight', { size: 15 })}</button>
       <button class="btn danger" data-act="end-combat">End</button>
     </div>` : ''}
@@ -1270,6 +1482,7 @@ function initRow(c, i, turnIndex, dm) {
       </div>
       ${hpBar(c.hp, c.maxHp)}
       ${conditionChips(c, dm)}
+      ${deathRow(c, canAttack)}
 
       ${needsInit && canAct ? `
         <button class="btn sm" style="margin-top:6px" data-act="roll-init-one" data-id="${c.id}">
@@ -1298,6 +1511,22 @@ function initRow(c, i, turnIndex, dm) {
       <button class="btn sm danger" data-act="c-del" data-i="${i}">${icon('x', { size: 14 })}</button>
     </div>` : ''}
   </div>`;
+}
+
+/** Death-save pips (and a roll button on the downed hero's own turn). */
+function deathRow(c, canAct) {
+  if (c.dead) return '<div class="tiny" style="margin-top:6px;color:var(--red);font-weight:700">Dead</div>';
+  if (c.stable) return '<div class="tiny" style="margin-top:6px;color:var(--accent);font-weight:700">Stable at 0 HP</div>';
+  if (!c.downed) return '';
+  const ds = c.deathSaves || { s: 0, f: 0 };
+  const pip = (on, cls) => `<span class="pip ${cls} ${on ? 'on' : ''}"></span>`;
+  const row = (n, cls) => Array.from({ length: 3 }, (_, i) => pip(i < n, cls)).join('');
+  return `
+    <div class="death-inline">
+      <span class="pips">${row(ds.s, 'good')}</span>
+      <span class="pips">${row(ds.f, 'bad')}</span>
+      ${canAct ? `<button class="btn sm" data-act="death-save" data-id="${c.id}">${icon('dice', { size: 12 })} Death save</button>` : ''}
+    </div>`;
 }
 
 const saveCombat = (patch) => api('PUT', `/api/campaigns/${state.campaign.id}/combat`, { ...state.combat, ...patch });
@@ -1828,6 +2057,20 @@ function settingsView() {
   </div>
 
   <div class="card" style="margin-top:16px">
+    <h3>Play style</h3>
+    <div class="spread">
+      <div>
+        <div style="font-weight:650">${state.simple ? 'Simple mode' : 'Advanced mode'}</div>
+        <p class="tiny">${state.simple
+          ? 'Plain language and explained outcomes — best for new players.'
+          : 'Full D&D terms, formulas and modifiers on show.'}</p>
+      </div>
+      <button class="btn ${state.simple ? 'primary' : ''}" data-act="toggle-simple">
+        ${state.simple ? 'Switch to Advanced' : 'Switch to Simple'}</button>
+    </div>
+  </div>
+
+  <div class="card" style="margin-top:16px">
     <h3>Account</h3>
     <p class="muted">${esc(state.user.username)} · ${esc(state.user.email)}</p>
     <div class="row" style="margin-top:12px">
@@ -1887,9 +2130,96 @@ function modalBody(name) {
     case 'conditions': return conditionsModal();
     case 'c-cond': return combatantConditionsModal();
     case 'coins': return coinsModal();
+    case 'glossary': return glossaryModal();
+    case 'request-roll': return requestRollModal();
     default: return '';
   }
 }
+
+/** The plain-language definition popup for a single term. */
+function glossaryModal() {
+  const t = state.modal.term;
+  const def = GLOSSARY[t] || 'No plain-language note for this one yet.';
+  return `
+    <h2>${esc(t)}</h2>
+    <p style="font-size:15px;line-height:1.5;color:var(--ink);margin-top:6px">${esc(def)}</p>
+    <button class="btn primary wide" style="margin-top:16px" data-act="close-modal">Got it</button>`;
+}
+
+/** The DM's "ask the party for a roll" builder. */
+function requestRollModal() {
+  const players = state.members.filter((m) => m.role !== 'dm');
+  const skills = Object.keys(state.srd.skills || {});
+  return `
+    <h2>Request a roll</h2>
+    <form data-act="send-roll-request" class="stack" style="margin-top:8px">
+      <label class="field"><span>Who rolls?</span>
+        <select name="to">
+          <option value="all">Everyone</option>
+          ${players.map((m) => `<option value="${m.id}">${esc(m.username)}</option>`).join('')}
+        </select></label>
+
+      <label class="field"><span>What kind of roll?</span>
+        <select name="check">
+          <optgroup label="Skill check">
+            ${skills.map((s) => `<option value="skill:${esc(s)}">${esc(s)}</option>`).join('')}
+          </optgroup>
+          <optgroup label="Saving throw">
+            ${ABILITIES.map(([k]) => `<option value="save:${k}">${ABILITY_NAME[k]} save</option>`).join('')}
+          </optgroup>
+          <optgroup label="Ability check">
+            ${ABILITIES.map(([k]) => `<option value="check:${k}">${ABILITY_NAME[k]} check</option>`).join('')}
+          </optgroup>
+          <optgroup label="Other"><option value="init:">Initiative</option></optgroup>
+        </select></label>
+
+      <div class="row">
+        <label class="field grow"><span>Difficulty (optional)</span>
+          <input name="dc" type="number" min="1" max="40" placeholder="e.g. 15" /></label>
+        <label class="field grow"><span>Roll type</span>
+          <select name="mode">
+            <option value="normal">Normal</option>
+            <option value="advantage">Advantage</option>
+            <option value="disadvantage">Disadvantage</option>
+          </select></label>
+      </div>
+
+      <label class="row" style="gap:8px"><input type="checkbox" name="proficient" style="width:auto" /> <span>Add proficiency bonus</span></label>
+      <label class="row" style="gap:8px"><input type="checkbox" name="secret" style="width:auto" /> <span>Secret — only I see the result</span></label>
+
+      <div class="row" style="margin-top:6px">
+        <button class="btn" type="button" data-act="close-modal">Cancel</button>
+        <button class="btn primary grow" type="submit">${icon('dice', { size: 16 })} Send request</button>
+      </div>
+    </form>`;
+}
+
+on('send-roll-request', async (form) => {
+  const raw = val(form, 'check') || 'check:wis';
+  const [kind, which] = raw.split(':');
+  const skills = state.srd.skills || {};
+  const body = {
+    to: val(form, 'to') || 'all',
+    dc: val(form, 'dc'),
+    mode: val(form, 'mode'),
+    proficient: form.querySelector('[name="proficient"]')?.checked || false,
+    secret: form.querySelector('[name="secret"]')?.checked || false,
+  };
+  if (kind === 'skill') {
+    body.kind = 'check'; body.skill = which; body.ability = skills[which] || 'wis';
+    body.label = `${which} check`;
+  } else if (kind === 'save') {
+    body.kind = 'save'; body.ability = which; body.label = `${ABILITY_NAME[which]} save`;
+  } else if (kind === 'init') {
+    body.kind = 'init'; body.ability = 'dex'; body.label = 'Initiative';
+  } else {
+    body.kind = 'check'; body.ability = which; body.label = `${ABILITY_NAME[which]} check`;
+  }
+  await api('POST', `/api/campaigns/${state.campaign.id}/roll-requests`, body);
+  state.modal = null;
+  render();
+  toast(`Roll requested: ${body.label}`);
+});
 
 function modalView() {
   // The backdrop closes on its own clicks only — see the 'modal-backdrop'

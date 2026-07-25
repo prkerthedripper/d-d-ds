@@ -11,7 +11,7 @@ import { all, get, run, uid, now, migrate } from './db.js';
 import { roll, describe } from './dice.js';
 import {
   resolveAttack, resolveSpell, tickConditions, normaliseConditions,
-  addCondition, removeCondition, findAction, spellStats,
+  addCondition, removeCondition, hasCondition, findAction, spellStats,
 } from './combat.js';
 import {
   SPELLS, CONDITIONS, CLASSES, RACES, SKILLS, DEFAULT_SLOTS, MONSTERS,
@@ -663,7 +663,15 @@ async function pushNotes(campaignId) {
 
 app.put('/api/campaigns/:id/combat', auth, requireMember, requireDM, wrap(async (req, res) => {
   const b = req.body || {};
-  const combatants = Array.isArray(b.combatants) ? b.combatants.slice(0, 40) : [];
+  const raw = Array.isArray(b.combatants) ? b.combatants.slice(0, 40) : [];
+  // Keep the downed / death-save flags honest no matter how HP was changed:
+  // a player character at 0 HP is down; any healing above 0 puts them back up.
+  const combatants = raw.map((c) => {
+    if (!c.charId) return c;
+    if (c.hp > 0) return { ...c, downed: false, dead: false, stable: false, deathSaves: { s: 0, f: 0 } };
+    if (!c.dead && !c.stable) return { ...c, downed: true, deathSaves: c.deathSaves || { s: 0, f: 0 } };
+    return c;
+  });
   const payload = {
     active: b.active ? 1 : 0,
     round: Math.max(1, Number(b.round) || 1),
@@ -732,10 +740,13 @@ function nextLivingTurn(combat, from) {
   const n = combat.combatants.length;
   for (let step = 1; step <= n; step++) {
     const idx = (from + step) % n;
-    if (combat.combatants[idx].hp > 0) return { index: idx, steps: step };
+    if (needsTurn(combat.combatants[idx])) return { index: idx, steps: step };
   }
   return { index: (from + 1) % n, steps: 1 };
 }
+
+// Up and fighting, or a downed hero who still needs a death-save turn.
+const needsTurn = (c) => c.hp > 0 || (!!c.charId && c.downed && !c.dead && !c.stable);
 
 /** Roll initiative for one combatant, then re-sort the order. */
 app.post('/api/campaigns/:id/combat/initiative', auth, requireMember, wrap(async (req, res) => {
@@ -887,11 +898,65 @@ const spellKey = (name) => String(name || '').toLowerCase().replace(/[’‘`´]
 /** Push an animation to everyone watching. */
 const sendFx = (campaignId, fx) => io.to(`c:${campaignId}`).emit('fx', fx);
 
-/** Apply damage to a combatant and keep a player character's sheet in step. */
-async function applyHp(campaignId, combatant, delta) {
-  combatant.hp = Math.max(0, Math.min(combatant.maxHp, combatant.hp + delta));
-  if (combatant.charId) {
-    await run('UPDATE characters SET hp = ? WHERE id = ?', [combatant.hp, combatant.charId]);
+/** Send a "the DM wants a roll" prompt — to one player, or the whole party. */
+const broadcastRollRequest = (campaignId, reqObj) => {
+  if (reqObj.to && reqObj.to !== 'all') io.to(`u:${reqObj.to}:${campaignId}`).emit('rollreq', reqObj);
+  else io.to(`c:${campaignId}`).emit('rollreq', reqObj);
+};
+
+/** Nudge a death-save tally, clamped to 3, and never below the current count. */
+function bumpDeath(ds, key, by = 1) {
+  const d = { s: 0, f: 0, ...(ds || {}) };
+  d[key] = Math.min(3, (d[key] || 0) + by);
+  return d;
+}
+
+/** Three successes = stable; three failures = dead. */
+function resolveDeath(combatant) {
+  const d = combatant.deathSaves || { s: 0, f: 0 };
+  if (d.f >= 3) { combatant.downed = false; combatant.dead = true; }
+  else if (d.s >= 3) { combatant.downed = false; combatant.stable = true; }
+}
+
+/**
+ * Apply damage or healing, keep the character sheet in step, and run the 5e
+ * downed / death-save rules for player characters. Taking damage at 0 HP is a
+ * death-save failure (two on a crit); any healing brings a downed hero back up.
+ */
+async function applyHp(campaignId, combatant, delta, opts = {}) {
+  const isPC = !!combatant.charId;
+  const next = Math.max(0, Math.min(combatant.maxHp, combatant.hp + delta));
+
+  if (isPC && delta < 0) {
+    if (combatant.downed) {
+      combatant.deathSaves = bumpDeath(combatant.deathSaves, 'f', opts.crit ? 2 : 1);
+      resolveDeath(combatant);
+    } else if (next === 0) {
+      combatant.downed = true;
+      combatant.deathSaves = { s: 0, f: 0 };
+    }
+  } else if (isPC && delta > 0 && combatant.downed && next > 0) {
+    combatant.downed = false;
+    combatant.dead = false;
+    combatant.stable = false;
+    combatant.deathSaves = { s: 0, f: 0 };
+  }
+
+  combatant.hp = next;
+  if (isPC) await run('UPDATE characters SET hp = ? WHERE id = ?', [combatant.hp, combatant.charId]);
+
+  // A concentrating caster who is hit must hold their spell — send them the check.
+  if (delta < 0 && isPC && combatant.hp > 0 && hasCondition(combatant, 'Concentrating')) {
+    const owner = await get('SELECT user_id AS "userId" FROM characters WHERE id = ?', [combatant.charId]);
+    if (owner) {
+      broadcastRollRequest(campaignId, {
+        id: uid(), to: owner.userId, kind: 'save', ability: 'con',
+        label: 'Concentration', dc: Math.max(10, Math.floor((-delta) / 2)), mode: 'normal',
+        proficient: false, secret: false,
+        note: `Hold concentration on ${combatant.concentratingOn?.spell || 'your spell'}`,
+        at: now(),
+      });
+    }
   }
   return combatant.hp;
 }
@@ -1010,6 +1075,16 @@ app.post('/api/campaigns/:id/combat/cast', auth, requireMember, wrap(async (req,
 
   const result = resolveSpell({ spell, effect, caster, casterSheet: sheet, target, slotLevel });
 
+  // Starting a new concentration spell drops whatever the caster was holding.
+  if (effect.concentration) {
+    const prev = caster.concentratingOn;
+    if (prev && prev.condition) {
+      const prevTarget = combat.combatants.find((x) => x.id === prev.targetId);
+      if (prevTarget) removeCondition(prevTarget, prev.condition);
+    }
+    caster.concentratingOn = { spell: spell.name, targetId: target?.id || null, condition: effect.condition || null };
+  }
+
   if (result.damage && target) await applyHp(req.campaignId, target, -result.damage);
   if (result.heal && target) await applyHp(req.campaignId, target, result.heal);
 
@@ -1064,6 +1139,104 @@ app.post('/api/campaigns/:id/combat/condition', auth, requireMember, requireDM, 
 
   await persistCombat(req.campaignId, combat);
   res.json({ ok: true });
+}));
+
+// ---------------------------------------------------------------- roll requests
+
+/** The DM asks the party — or one player — to make a check, save or initiative. */
+app.post('/api/campaigns/:id/roll-requests', auth, requireMember, requireDM, wrap(async (req, res) => {
+  const b = req.body || {};
+  const reqObj = {
+    id: uid(),
+    to: !b.to || b.to === 'all' ? 'all' : String(b.to),
+    kind: b.kind === 'save' ? 'save' : b.kind === 'init' ? 'init' : 'check',
+    ability: String(b.ability || 'wis').toLowerCase().slice(0, 3),
+    skill: b.skill ? String(b.skill).slice(0, 30) : null,
+    label: String(b.label || '').slice(0, 40),
+    dc: b.dc === '' || b.dc == null ? null : Math.max(1, Math.min(40, Number(b.dc) || 0)),
+    mode: ['advantage', 'disadvantage'].includes(b.mode) ? b.mode : 'normal',
+    proficient: !!b.proficient,
+    secret: !!b.secret,
+    note: String(b.note || '').slice(0, 120),
+    at: now(),
+  };
+  broadcastRollRequest(req.campaignId, reqObj);
+  res.json({ ok: true, request: reqObj });
+}));
+
+/** A player answers a roll request; the dice are rolled on the server. */
+app.post('/api/campaigns/:id/roll-requests/respond', auth, requireMember, wrap(async (req, res) => {
+  const b = req.body || {};
+  let result;
+  try { result = roll(String(b.formula || 'd20')); } catch (err) { throw bad(err.message); }
+
+  const dc = b.dc === '' || b.dc == null ? null : Number(b.dc);
+  const entry = {
+    id: uid(), userId: req.user.id, label: String(b.label || 'Requested check').slice(0, 40),
+    formula: result.formula, detail: describe(result), total: result.total, createdAt: now(),
+  };
+  await run('INSERT INTO rolls (id, campaign_id, user_id, label, formula, detail, total, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+    [entry.id, req.campaignId, entry.userId, entry.label, entry.formula, entry.detail, entry.total, entry.createdAt]);
+
+  const payload = {
+    ...entry, requested: true, dc,
+    pass: dc == null ? null : result.total >= dc, secret: !!b.secret,
+  };
+
+  if (b.secret) {
+    // Only the roller and the DM see a secret result.
+    const dmRow = await get('SELECT dm_id AS "dmId" FROM campaigns WHERE id = ?', [req.campaignId]);
+    io.to(`u:${req.user.id}:${req.campaignId}`).emit('patch', { scope: 'roll', data: payload });
+    if (dmRow?.dmId && dmRow.dmId !== req.user.id) {
+      io.to(`u:${dmRow.dmId}:${req.campaignId}`).emit('patch', { scope: 'roll', data: payload });
+    }
+  } else {
+    emit(req.campaignId, 'roll', payload);
+  }
+  res.json({ roll: payload });
+}));
+
+/** A downed player character rolls a death save on their turn. */
+app.post('/api/campaigns/:id/combat/death-save', auth, requireMember, wrap(async (req, res) => {
+  const combat = await loadCombat(req.campaignId);
+  const characters = await loadCharacters(req.campaignId);
+  const c = combat.combatants.find((x) => x.id === req.body.combatantId);
+  if (!c) throw bad('Not in this fight', 404);
+  if (!canControl(c, req.membership, req.user.id, characters)) throw bad('Not your character', 403);
+  if (!c.downed) throw bad('That character is not making death saves');
+
+  const r = roll('1d20');
+  const nat = r.total;
+  let line;
+  let fx = null;
+
+  if (nat === 20) {
+    c.deathSaves = { s: 0, f: 0 };
+    await applyHp(req.campaignId, c, 1);
+    line = `${c.name} rolls a natural 20 on the death save — back on their feet with 1 HP!`;
+    fx = { type: 'heal', heal: 1, name: c.name };
+  } else if (nat === 1) {
+    c.deathSaves = bumpDeath(c.deathSaves, 'f', 2);
+    resolveDeath(c);
+    line = `${c.name} rolls a natural 1 — two death-save failures.`;
+  } else if (nat >= 10) {
+    c.deathSaves = bumpDeath(c.deathSaves, 's', 1);
+    resolveDeath(c);
+    line = `${c.name} succeeds on a death save (rolled ${nat}).`;
+  } else {
+    c.deathSaves = bumpDeath(c.deathSaves, 'f', 1);
+    resolveDeath(c);
+    line = `${c.name} fails a death save (rolled ${nat}).`;
+  }
+  if (c.dead) { line += ` ${c.name} has died.`; fx = { type: 'down', name: c.name }; }
+  else if (c.stable) line += ` ${c.name} is stable at 0 HP.`;
+
+  await persistCombat(req.campaignId, combat);
+  emit(req.campaignId, 'characters', await loadCharacters(req.campaignId));
+  if (fx) sendFx(req.campaignId, fx);
+  await logCombat(req.campaignId, req.user.id, line);
+
+  res.json({ ok: true, roll: nat, deathSaves: c.deathSaves, dead: !!c.dead, stable: !!c.stable, revived: nat === 20 });
 }));
 
 // ---------------------------------------------------------------- codex
