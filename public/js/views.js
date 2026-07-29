@@ -2115,16 +2115,17 @@ function importExportCard() {
 
     <p class="muted" style="margin-bottom:6px">
       Bring a whole campaign in from Chronica — characters, NPCs, quests, locations,
-      shops, timeline and notes, all in one go.
+      shops, timeline and notes.
     </p>
     <p class="tiny" style="margin-bottom:14px">
-      Chronica has no export button, so first save your campaign as a JSON file
-      (see “How do I get my data out of Chronica?” below), then drop it here.
+      In Chronica, Export each part of your campaign — it saves one JSON file per
+      section (characters, shops, items…). <b>Select all of them together here</b>
+      and they’ll be combined into a single import.
     </p>
 
     <div class="row" style="margin-bottom:12px">
       <button class="btn primary" data-act="pick-import-file">
-        ${icon('backpack', { size: 15 })} Choose a file…</button>
+        ${icon('backpack', { size: 15 })} Choose files…</button>
       <button class="btn" data-act="paste-import">${icon('notes', { size: 15 })} Paste instead</button>
       <button class="btn" data-act="download-template">${icon('arrowDown', { size: 15 })} Get a template</button>
     </div>
@@ -2151,16 +2152,16 @@ function importExportCard() {
     <details style="margin-top:14px">
       <summary style="cursor:pointer;font-weight:600;font-size:13.5px">How do I get my data out of Chronica?</summary>
       <div class="muted" style="font-size:13px;margin-top:10px;line-height:1.6">
-        Chronica doesn’t have an export button, so there are two honest ways:
-        <ol style="margin:8px 0;padding-left:20px">
-          <li><b>Ask Chronica for your data.</b> Email their support and ask for a JSON export
-              of your campaign — most tools will send you one. Drop that file here; this
-              importer reads all the common field names automatically.</li>
-          <li><b>Fill in the template.</b> Download the template above, copy your NPCs,
-              quests, locations and notes across from Chronica, and load it back here.</li>
-        </ol>
-        Either way, nothing is lost — you can re-import as many times as you like, and the
-        <b>Back up this campaign</b> button below saves everything in the same format.
+        In Chronica, open your campaign and use its <b>Export</b> option. It downloads
+        one JSON file for each part of the campaign — one for characters, one for
+        shops, one for the item library, and so on. Grab all of them, then click
+        <b>Choose files…</b> above and select the whole batch at once.
+        <ul style="margin:8px 0;padding-left:20px">
+          <li>This importer reads Chronica’s field names automatically — no editing needed.</li>
+          <li>Empty sections just import nothing; that’s fine.</li>
+          <li>Nothing is deleted, so you can re-import safely at any time.</li>
+        </ul>
+        No Chronica export? Use <b>Get a template</b> and fill it in by hand instead.
       </div>
     </details>
 
@@ -2172,39 +2173,54 @@ function importExportCard() {
 
 // ---- import / export
 
-/** Read a payload, preview it, and stash it for the confirm step. */
-async function stageImport(raw) {
-  let data;
-  try {
-    data = typeof raw === 'string' ? JSON.parse(raw) : raw;
-  } catch {
-    return toast('That file is not valid JSON — check it exported cleanly.', 'err');
-  }
+/**
+ * Preview a payload and stash it for the confirm step. `data` may be one object
+ * or an array of them — Chronica exports one file per section, and the server
+ * merges an array into a single import.
+ */
+async function stageImport(data) {
   const { summary } = await api('POST', `/api/campaigns/${state.campaign.id}/import/preview`, { data });
   const total = Object.values(summary).reduce((a, b) => a + b, 0);
-  if (!total) return toast('Nothing recognisable in that file.', 'err');
+  if (!total) return toast('Nothing recognisable in there. Did you pick your Chronica export files?', 'err');
   state.importPreview = { data, summary };
   render();
 }
+
+const readFile = (file) => new Promise((resolve, reject) => {
+  const reader = new FileReader();
+  reader.onerror = () => reject(new Error(`Could not read ${file.name}`));
+  reader.onload = () => resolve(String(reader.result));
+  reader.readAsText(file);
+});
 
 on('pick-import-file', () => {
   const input = document.createElement('input');
   input.type = 'file';
   input.accept = 'application/json,.json,.txt';
-  input.onchange = () => {
-    const file = input.files?.[0];
-    if (!file) return;
-    if (file.size > 8 * 1024 * 1024) return toast('That file is very large — over 8 MB.', 'err');
-    const reader = new FileReader();
-    reader.onload = () => stageImport(String(reader.result)).catch(fail);
-    reader.readAsText(file);
+  input.multiple = true; // Chronica splits a campaign across several files
+  input.onchange = async () => {
+    const files = [...(input.files || [])];
+    if (!files.length) return;
+    if (files.some((f) => f.size > 8 * 1024 * 1024)) return toast('One of those files is over 8 MB.', 'err');
+    try {
+      const texts = await Promise.all(files.map(readFile));
+      const parsed = texts.map((t) => {
+        try { return JSON.parse(t); } catch { return null; }
+      });
+      const good = parsed.filter(Boolean);
+      if (!good.length) return toast('None of those were valid JSON files.', 'err');
+      if (good.length < files.length) toast(`Skipped ${files.length - good.length} file(s) that were not valid JSON.`);
+      // One file → send it as-is; several → send the array for the server to merge.
+      await stageImport(good.length === 1 ? good[0] : good);
+    } catch (err) { fail(err); }
   };
   input.click();
 });
 
 on('paste-import', () => {
   const text = prompt('Paste your campaign JSON here:');
-  if (text) stageImport(text).catch(fail);
+  if (!text) return;
+  try { stageImport(JSON.parse(text)).catch(fail); } catch { toast('That is not valid JSON.', 'err'); }
 });
 
 on('cancel-import', () => { state.importPreview = null; render(); });

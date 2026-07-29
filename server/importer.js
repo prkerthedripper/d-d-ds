@@ -49,26 +49,67 @@ function asArray(value) {
   return [];
 }
 
-// Where each codex kind can live in the incoming file.
+// Where each codex kind can live in the incoming file. Chronica uses
+// `campaign_<thing>` keys (campaign_shops, master_item_library, …), so those
+// are listed alongside the plainer names other tools use.
 const SECTION_ALIASES = {
   npc: ['npcs', 'npc', 'characters_npc', 'nonplayercharacters', 'people', 'contacts'],
-  quest: ['quests', 'quest', 'questchains', 'objectives', 'missions', 'jobs'],
-  location: ['locations', 'location', 'places', 'place', 'regions', 'areas', 'sites'],
-  shop: ['shops', 'shop', 'stores', 'vendors', 'merchants'],
-  event: ['events', 'timeline', 'developments', 'sessionrecaps', 'sessions', 'history'],
+  quest: ['quests', 'quest', 'campaign_quests', 'questchains', 'objectives', 'missions', 'jobs'],
+  location: ['locations', 'location', 'campaign_places', 'campaign_locations', 'places', 'place', 'regions', 'areas', 'sites'],
+  shop: ['shops', 'shop', 'campaign_shops', 'stores', 'vendors', 'merchants'],
+  event: ['events', 'timeline', 'developments', 'campaign_developments', 'sessionrecaps', 'sessions', 'history'],
 };
+
+/**
+ * Merge several export files into one payload. Chronica downloads one file per
+ * section (characters here, shops there, items elsewhere), so selecting them all
+ * at once should behave as a single import. Arrays with the same key concatenate.
+ */
+export function mergeSources(list) {
+  const out = {};
+  for (const item of list) {
+    if (!item || typeof item !== 'object') continue;
+    const root = item.campaign && typeof item.campaign === 'object' ? { ...item, ...item.campaign } : item;
+    for (const [k, v] of Object.entries(root)) {
+      if (k === 'campaign') continue;
+      if (Array.isArray(v)) out[k] = [...(Array.isArray(out[k]) ? out[k] : []), ...v];
+      else if (v && typeof v === 'object') out[k] = { ...(out[k] || {}), ...v };
+      else if (v != null && v !== '' && out[k] == null) out[k] = v;
+    }
+  }
+  return out;
+}
+
+/**
+ * Is this character a player character? Chronica marks PCs with
+ * special === "Main Character" and a player_id; NPCs have neither.
+ */
+function isPlayerCharacter(raw) {
+  const type = str(firstOf(raw, ['type', 'kind'])).toLowerCase();
+  if (firstOf(raw, ['isnpc'], false) === true || type.includes('npc')) return false;
+  if (type === 'pc' || type === 'player') return true;
+
+  const special = str(firstOf(raw, ['special'])).toLowerCase();
+  if (special.includes('main character') || special.includes('player')) return true;
+  if (firstOf(raw, ['player_id', 'playerid'], null)) return true;
+
+  // A Chronica entry with a disposition/faction but no player is an NPC.
+  if (firstOf(raw, ['disposition', 'faction'], null)) return false;
+  return true; // when genuinely unsure, keep it as a character
+}
 
 function normalizeEntry(kind, raw) {
   let subtitle = str(firstOf(raw, kind === 'shop' ? ['owner', 'proprietor', 'keeper']
     : kind === 'location' ? ['region', 'parent', 'area']
       : kind === 'quest' ? ['giver', 'questgiver', 'source']
-        : ['role', 'race', 'occupation', 'type']));
+        : ['role', 'occupation', 'title', 'race', 'faction', 'type'])); // NPC
   // A bare category word ("npc", "character") is noise, not a subtitle.
   if (/^(npc|character|pc|player|location|quest|shop|event)$/i.test(subtitle)) subtitle = '';
 
   const entry = {
     kind,
-    title: str(firstOf(raw, ['title', 'name', 'label', 'heading'])) || 'Untitled',
+    // Prefer a real name over a job-title field, so "dad" wins over an empty title.
+    title: str(firstOf(raw, ['name', 'title', 'label', 'heading'])) || 'Untitled',
     subtitle,
     body: bodyOf(raw),
     image: imageOf(raw),
@@ -77,11 +118,11 @@ function normalizeEntry(kind, raw) {
   };
 
   if (kind === 'shop') {
-    const stock = asArray(firstOf(raw, ['stock', 'items', 'inventory', 'wares', 'goods'], []));
+    const stock = asArray(firstOf(raw, ['stock', 'shop_items', 'items', 'inventory', 'wares', 'goods', 'campaign_shop_items'], []));
     entry.data.stock = stock.map((s) => ({
       name: str(firstOf(s, ['name', 'item', 'title'])) || 'Item',
       price: str(firstOf(s, ['price', 'cost', 'value'])),
-      category: str(firstOf(s, ['category', 'type'])),
+      category: str(firstOf(s, ['category', 'type'])) || guessCategory(str(firstOf(s, ['name', 'item', 'title']))),
     })).filter((s) => s.name);
   }
   return entry;
@@ -94,7 +135,7 @@ function normalizeCharacter(raw) {
   return {
     name: str(firstOf(raw, ['name', 'title', 'charactername'])) || 'Imported Character',
     race: str(firstOf(raw, ['race', 'ancestry', 'species'])),
-    class: str(firstOf(raw, ['class', 'classes', 'archetype'])),
+    class: str(firstOf(raw, ['class', 'classes', 'archetype', 'npc_class', 'npcclass'])),
     level: int(firstOf(raw, ['level', 'lvl'], 1), 1),
     maxHp: int(firstOf(raw, ['maxhp', 'hp', 'hitpoints', 'health'], 10), 10),
     ac: int(firstOf(raw, ['ac', 'armorclass', 'armourclass', 'armor'], 10), 10),
@@ -122,10 +163,23 @@ function normalizeNote(raw) {
   };
 }
 
+/** Best-guess item category from its name, so imports get sensible tinted art. */
+function guessCategory(name) {
+  const n = String(name).toLowerCase();
+  if (/potion|elixir|draught|flask|philter/.test(n)) return 'Potion';
+  if (/sword|axe|bow|dagger|mace|spear|club|hammer|blade|staff|crossbow|flail|glaive|halberd|rapier|scimitar|whip/.test(n)) return 'Weapon';
+  if (/armor|armour|shield|mail|plate|leather|helm|breastplate|gauntlet/.test(n)) return 'Armor';
+  if (/arrow|bolt|bullet|ammunition|needle/.test(n)) return 'Ammunition';
+  if (/scroll|tome|book|map|letter|deed/.test(n)) return 'Other';
+  if (/gem|jewel|ring|amulet|relic|crown|idol/.test(n)) return 'Quest Item';
+  return 'Gear';
+}
+
 function normalizeItem(raw) {
+  const name = str(firstOf(raw, ['name', 'title', 'item'])) || 'Item';
   return {
-    name: str(firstOf(raw, ['name', 'title', 'item'])) || 'Item',
-    category: str(firstOf(raw, ['category', 'type'])) || 'Gear',
+    name,
+    category: str(firstOf(raw, ['category', 'type'])) || guessCategory(name),
     details: str(firstOf(raw, ['details', 'description', 'notes'])),
     weight: Number(firstOf(raw, ['weight', 'wt'], 0)) || 0,
     qty: int(firstOf(raw, ['qty', 'quantity', 'count', 'amount'], 1), 1),
@@ -138,20 +192,20 @@ function normalizeItem(raw) {
  * `{ campaign: {...} }` wrapper.
  */
 export function planImport(payload) {
-  const root = (payload && typeof payload === 'object' && payload.campaign && typeof payload.campaign === 'object')
-    ? { ...payload, ...payload.campaign }
-    : (payload || {});
+  const merged = Array.isArray(payload) ? mergeSources(payload) : payload;
+  const root = (merged && typeof merged === 'object' && merged.campaign && typeof merged.campaign === 'object')
+    ? { ...merged, ...merged.campaign }
+    : (merged || {});
 
   const plan = { campaignName: str(firstOf(root, ['campaignname', 'name', 'title'])), characters: [], entries: [], notes: [], items: [] };
 
-  // Player characters.
+  // Characters — Chronica keeps PCs and NPCs together in one array and marks the
+  // difference, so we split them here.
   for (const kind of ['characters', 'players', 'partymembers', 'pcs']) {
     const arr = asArray(firstOf(root, [kind], []));
-    // "characters" in some exports mixes PCs and NPCs; treat a truthy npc flag as an NPC.
     for (const raw of arr) {
-      const isNpc = !!firstOf(raw, ['isnpc', 'npc'], false) || /npc/i.test(str(firstOf(raw, ['type', 'kind'])));
-      if (isNpc) plan.entries.push(normalizeEntry('npc', raw));
-      else plan.characters.push(normalizeCharacter(raw));
+      if (isPlayerCharacter(raw)) plan.characters.push(normalizeCharacter(raw));
+      else plan.entries.push(normalizeEntry('npc', raw));
     }
     if (arr.length) break; // first matching alias wins, don't double-count
   }
@@ -186,8 +240,8 @@ export function planImport(payload) {
     if (arr.length) { for (const raw of arr) plan.notes.push(normalizeNote(raw)); break; }
   }
 
-  // Loose items not attached to a character or shop.
-  for (const alias of ['items', 'inventory', 'loot', 'treasure']) {
+  // Loose items — Chronica's is `master_item_library`.
+  for (const alias of ['items', 'master_item_library', 'inventory', 'loot', 'treasure', 'item_library']) {
     const arr = asArray(firstOf(root, [alias], []));
     if (arr.length) { for (const raw of arr) plan.items.push(normalizeItem(raw)); break; }
   }
