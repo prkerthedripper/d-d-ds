@@ -53,6 +53,11 @@ everyone on their own phone, everything synced instantly.
 - **Spells** — 5e reference for the common low-level spells, per-character known list
 - **Notes** — shared with the party, or DM-only
 - **Party chat**
+- **Import & backup** (Settings, DM only) — pull a whole campaign in from Chronica
+  or any other tool: characters, NPCs, quests, locations, shops, timeline and notes.
+  The importer reads all the common field names, so a messy export still maps
+  cleanly, and it previews the tally before writing anything. "Back up this
+  campaign" downloads everything as JSON, which re-imports as a perfect restore.
 
 Everything is pushed over websockets, so a change on one phone shows on all of
 them within a fraction of a second.

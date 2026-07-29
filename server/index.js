@@ -17,6 +17,9 @@ import {
   SPELLS, CONDITIONS, CLASSES, RACES, SKILLS, DEFAULT_SLOTS, MONSTERS,
   SPELL_EFFECTS, COMBAT_ACTIONS, CONDITION_LOOK, ITEM_CATALOG,
 } from './srd.js';
+import { planImport, summarize } from './importer.js';
+
+const str = (v) => (v == null ? '' : String(v)).trim();
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const PORT = process.env.PORT || 3000;
@@ -1557,6 +1560,122 @@ app.delete('/api/campaigns/:id/presets/:presetId', auth, requireMember, requireD
   await run('DELETE FROM enemy_presets WHERE id = ? AND campaign_id = ?', [req.params.presetId, req.campaignId]);
   emit(req.campaignId, 'presets', null);
   res.json({ ok: true });
+}));
+
+// ---------------------------------------------------------------- import / export
+
+/** Everything in a campaign, as a portable JSON backup. */
+app.get('/api/campaigns/:id/export', auth, requireMember, requireDM, wrap(async (req, res) => {
+  const id = req.campaignId;
+  const campaign = await get('SELECT name, description, session_title AS "sessionTitle" FROM campaigns WHERE id = ?', [id]);
+  res.json({
+    format: 'dndds-campaign',
+    version: 1,
+    exportedAt: now(),
+    campaign,
+    characters: await loadCharacters(id),
+    entries: await loadEntries(id, true),
+    notes: await loadNotes(id, true),
+    presets: (await all('SELECT * FROM enemy_presets WHERE campaign_id = ?', [id])).map((r) => ({
+      name: r.name, cr: r.cr, hp: r.hp, ac: r.ac, initBonus: r.init_bonus,
+      speed: r.speed, attacks: P(r.attacks, []), loot: P(r.loot, []), note: r.note,
+    })),
+  });
+}));
+
+/** Preview an import without writing anything — powers the confirmation screen. */
+app.post('/api/campaigns/:id/import/preview', auth, requireMember, requireDM, wrap(async (req, res) => {
+  const plan = planImport(req.body?.data ?? req.body);
+  res.json({ summary: summarize(plan) });
+}));
+
+/** Commit an import: create characters, codex entries, notes and loose items. */
+app.post('/api/campaigns/:id/import', auth, requireMember, requireDM, wrap(async (req, res) => {
+  const id = req.campaignId;
+  const plan = planImport(req.body?.data ?? req.body);
+  const created = { characters: 0, entries: 0, notes: 0, items: 0 };
+
+  for (const c of plan.characters) {
+    const charId = uid();
+    await run(
+      `INSERT INTO characters (id, campaign_id, owner_id, name, race, class, level, hp, max_hp, temp_hp,
+        ac, speed, init_bonus, prof_bonus, stats, slots, spells, coins, conditions, notes, portrait, attacks, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '[]', ?)`,
+      [charId, id, req.user.id, c.name.slice(0, 40), c.race, c.class, c.level,
+        c.maxHp, c.maxHp, c.ac, c.speed, c.initBonus, c.profBonus,
+        J(c.stats), J(DEFAULT_SLOTS), J([]), J({ cp: 0, sp: 0, ep: 0, gp: 0, pp: 0 }), J([]),
+        c.notes || '', c.portrait || '', now()],
+    );
+    // Characters may carry their own inventory in an export.
+    for (const item of Array.isArray(c.items) ? c.items : []) {
+      await run(
+        `INSERT INTO items (id, character_id, name, category, details, weight, qty, equipped, effect, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`,
+        [uid(), charId, str(item.name).slice(0, 60) || 'Item', str(item.category) || 'Gear',
+          str(item.details), Number(item.weight) || 0, Number(item.qty) || 1,
+          item.effect ? J(item.effect) : '', now()],
+      );
+    }
+    created.characters += 1;
+  }
+
+  for (const e of plan.entries) {
+    await run(
+      `INSERT INTO entries (id, campaign_id, kind, title, subtitle, body, image, status, data, dm_only, author_id, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [uid(), id, e.kind, e.title.slice(0, 90), e.subtitle.slice(0, 120), e.body.slice(0, 8000),
+        /^data:image\//.test(e.image) && e.image.length < 700_000 ? e.image : '',
+        e.status.slice(0, 30), J(e.data || {}), e.dmOnly ? 1 : 0, req.user.id, now(), now()],
+    );
+    created.entries += 1;
+  }
+
+  for (const n of plan.notes) {
+    await run('INSERT INTO notes (id, campaign_id, author_id, title, body, dm_only, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      [uid(), id, req.user.id, n.title.slice(0, 80), n.body, n.dmOnly ? 1 : 0, now()]);
+    created.notes += 1;
+  }
+
+  // Presets from a native export.
+  for (const p of Array.isArray(req.body?.presets) ? req.body.presets : []) {
+    await run(
+      `INSERT INTO enemy_presets (id, campaign_id, name, cr, hp, ac, init_bonus, speed, attacks, loot, note, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [uid(), id, str(p.name).slice(0, 50) || 'Enemy', str(p.cr), Number(p.hp) || 10, Number(p.ac) || 12,
+        Number(p.initBonus) || 0, Number(p.speed) || 30, J(p.attacks || []), J(p.loot || []), str(p.note), now()],
+    );
+  }
+
+  // Loose items land on the DM's first character if they have one, else become an "Imported Loot" note.
+  if (plan.items.length) {
+    const mine = await get('SELECT id FROM characters WHERE campaign_id = ? AND owner_id = ? ORDER BY created_at LIMIT 1', [id, req.user.id]);
+    if (mine) {
+      for (const item of plan.items) {
+        await run(
+          `INSERT INTO items (id, character_id, name, category, details, weight, qty, equipped, effect, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, 0, '', ?)`,
+          [uid(), mine.id, item.name.slice(0, 60), item.category, item.details, item.weight, item.qty, now()],
+        );
+        created.items += 1;
+      }
+    } else {
+      const body = plan.items.map((i) => `• ${i.qty}× ${i.name}${i.details ? ` — ${i.details}` : ''}`).join('\n');
+      await run('INSERT INTO notes (id, campaign_id, author_id, title, body, dm_only, updated_at) VALUES (?, ?, ?, ?, ?, 1, ?)',
+        [uid(), id, req.user.id, 'Imported Loot', body, now()]);
+      created.notes += 1;
+    }
+  }
+
+  // Push the fresh state to everyone.
+  emit(id, 'characters', await loadCharacters(id));
+  await pushEntries(id);
+  await pushNotes(id);
+  emit(id, 'presets', null);
+
+  await logCombat(id, req.user.id,
+    `Imported ${created.characters} characters, ${created.entries} codex entries and ${created.notes} notes.`);
+
+  res.json({ ok: true, created });
 }));
 
 // ---------------------------------------------------------------- reference

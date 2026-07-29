@@ -35,6 +35,7 @@ export const state = {
   turnTab: 'actions',
   pendingAction: null,
   turnAlertShown: false,
+  importPreview: null,
   simple: localStorage.getItem('dndds-simple') !== '0', // plain-language mode, on by default
   rollRequests: [], // pending "the DM wants a roll" prompts for this user
   economy: null, // action/bonus tracker for the current turn

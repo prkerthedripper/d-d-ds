@@ -1,7 +1,7 @@
 // Page rendering + user actions.
 import {
   state, api, esc, mod, signed, avatar, hpBar, nameOf, ago, isDM, myChars,
-  toast, on, render, loadMe, openCampaign, portraitOf,
+  toast, fail, on, render, loadMe, openCampaign, refresh, portraitOf,
 } from './core.js';
 import { icon, itemTile } from './icons.js';
 import { pickImage } from './images.js';
@@ -2093,6 +2093,8 @@ function settingsView() {
     </div>
   </div>
 
+  ${dm ? importExportCard() : ''}
+
   <div class="card" style="margin-top:16px">
     <h3>Account</h3>
     <p class="muted">${esc(state.user.username)} · ${esc(state.user.email)}</p>
@@ -2103,6 +2105,154 @@ function settingsView() {
     </div>
   </div>`;
 }
+
+/** Import a Chronica (or any) campaign, and back this one up. DM only. */
+function importExportCard() {
+  const preview = state.importPreview;
+  return `
+  <div class="card" style="margin-top:16px">
+    <div class="card-head">${icon('book', { size: 17 })}<h3>Import &amp; backup</h3></div>
+
+    <p class="muted" style="margin-bottom:6px">
+      Bring a whole campaign in from Chronica — characters, NPCs, quests, locations,
+      shops, timeline and notes, all in one go.
+    </p>
+    <p class="tiny" style="margin-bottom:14px">
+      Chronica has no export button, so first save your campaign as a JSON file
+      (see “How do I get my data out of Chronica?” below), then drop it here.
+    </p>
+
+    <div class="row" style="margin-bottom:12px">
+      <button class="btn primary" data-act="pick-import-file">
+        ${icon('backpack', { size: 15 })} Choose a file…</button>
+      <button class="btn" data-act="paste-import">${icon('notes', { size: 15 })} Paste instead</button>
+      <button class="btn" data-act="download-template">${icon('arrowDown', { size: 15 })} Get a template</button>
+    </div>
+
+    ${preview ? `
+      <div class="card" style="background:var(--panel-2);border-color:var(--accent)">
+        <div style="font-weight:650;margin-bottom:8px">Ready to import:</div>
+        <div class="row" style="gap:14px;font-size:13.5px">
+          ${[['characters', 'characters'], ['npc', 'NPCs'], ['quest', 'quests'],
+            ['location', 'locations'], ['shop', 'shops'], ['event', 'timeline'],
+            ['notes', 'notes'], ['items', 'items']]
+            .filter(([k]) => preview.summary[k])
+            .map(([k, label]) => `<span><b>${preview.summary[k]}</b> ${label}</span>`).join('')
+            || '<span class="muted">Nothing recognised in that file.</span>'}
+        </div>
+        <div class="row" style="margin-top:14px">
+          <button class="btn" data-act="cancel-import">Cancel</button>
+          <button class="btn primary grow" data-act="commit-import">
+            ${icon('check', { size: 15 })} Import into ${esc(state.campaign.name)}</button>
+        </div>
+        <p class="tiny" style="margin-top:8px">This adds to your campaign — it never deletes what is already here.</p>
+      </div>` : ''}
+
+    <details style="margin-top:14px">
+      <summary style="cursor:pointer;font-weight:600;font-size:13.5px">How do I get my data out of Chronica?</summary>
+      <div class="muted" style="font-size:13px;margin-top:10px;line-height:1.6">
+        Chronica doesn’t have an export button, so there are two honest ways:
+        <ol style="margin:8px 0;padding-left:20px">
+          <li><b>Ask Chronica for your data.</b> Email their support and ask for a JSON export
+              of your campaign — most tools will send you one. Drop that file here; this
+              importer reads all the common field names automatically.</li>
+          <li><b>Fill in the template.</b> Download the template above, copy your NPCs,
+              quests, locations and notes across from Chronica, and load it back here.</li>
+        </ol>
+        Either way, nothing is lost — you can re-import as many times as you like, and the
+        <b>Back up this campaign</b> button below saves everything in the same format.
+      </div>
+    </details>
+
+    <hr style="border:0;border-top:1px solid var(--line-soft);margin:16px 0" />
+    <button class="btn" data-act="export-campaign">
+      ${icon('book', { size: 15 })} Back up this campaign (download JSON)</button>
+  </div>`;
+}
+
+// ---- import / export
+
+/** Read a payload, preview it, and stash it for the confirm step. */
+async function stageImport(raw) {
+  let data;
+  try {
+    data = typeof raw === 'string' ? JSON.parse(raw) : raw;
+  } catch {
+    return toast('That file is not valid JSON — check it exported cleanly.', 'err');
+  }
+  const { summary } = await api('POST', `/api/campaigns/${state.campaign.id}/import/preview`, { data });
+  const total = Object.values(summary).reduce((a, b) => a + b, 0);
+  if (!total) return toast('Nothing recognisable in that file.', 'err');
+  state.importPreview = { data, summary };
+  render();
+}
+
+on('pick-import-file', () => {
+  const input = document.createElement('input');
+  input.type = 'file';
+  input.accept = 'application/json,.json,.txt';
+  input.onchange = () => {
+    const file = input.files?.[0];
+    if (!file) return;
+    if (file.size > 8 * 1024 * 1024) return toast('That file is very large — over 8 MB.', 'err');
+    const reader = new FileReader();
+    reader.onload = () => stageImport(String(reader.result)).catch(fail);
+    reader.readAsText(file);
+  };
+  input.click();
+});
+
+on('paste-import', () => {
+  const text = prompt('Paste your campaign JSON here:');
+  if (text) stageImport(text).catch(fail);
+});
+
+on('cancel-import', () => { state.importPreview = null; render(); });
+
+on('commit-import', async () => {
+  const { created } = await api('POST', `/api/campaigns/${state.campaign.id}/import`, state.importPreview.data);
+  state.importPreview = null;
+  await refresh();
+  const bits = Object.entries(created).filter(([, n]) => n).map(([k, n]) => `${n} ${k}`);
+  toast(bits.length ? `Imported ${bits.join(', ')}` : 'Nothing new to import');
+});
+
+/** Save a JSON file to the user's device. */
+function downloadJson(filename, obj) {
+  const blob = new Blob([JSON.stringify(obj, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  a.click();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+on('download-template', () => {
+  downloadJson('dndds-import-template.json', {
+    campaign: {
+      name: 'My Campaign',
+      characters: [
+        { name: 'Lyra', race: 'Elf', class: 'Ranger', level: 4, hp: 27, ac: 15,
+          stats: { str: 10, dex: 16, con: 13, int: 11, wis: 15, cha: 9 } },
+      ],
+      npcs: [{ name: 'Meepo', race: 'Kobold', status: 'Friendly', description: 'A sad kobold.' }],
+      quests: [{ title: 'Rescue the Merchants', giver: 'Kerowyn', status: 'Active', description: 'Find them.' }],
+      locations: [{ name: 'The Sunless Citadel', region: 'Ashen Plain', description: 'A sunken fortress.' }],
+      shops: [{ name: 'General Store', owner: 'Bartho', stock: [{ name: 'Rope', price: '1 gp' }] }],
+      events: [{ title: 'Session 1', description: 'The adventure began.' }],
+      notes: [{ title: 'A secret', body: 'Only the DM sees this.', dmOnly: true }],
+    },
+  });
+  toast('Template downloaded — fill it in and load it back here.');
+});
+
+on('export-campaign', async () => {
+  const data = await api('GET', `/api/campaigns/${state.campaign.id}/export`);
+  const safe = state.campaign.name.replace(/[^a-z0-9]+/gi, '-').toLowerCase();
+  downloadJson(`${safe || 'campaign'}-backup.json`, data);
+  toast('Backup downloaded');
+});
 
 on('save-campaign', async (form) => {
   await api('PATCH', `/api/campaigns/${state.campaign.id}`, {
