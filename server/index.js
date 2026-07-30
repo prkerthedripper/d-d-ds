@@ -1615,6 +1615,7 @@ app.post('/api/campaigns/:id/import', auth, requireMember, requireDM, wrap(async
           str(item.details), Number(item.weight) || 0, Number(item.qty) || 1,
           item.effect ? J(item.effect) : '', now()],
       );
+      created.items += 1;
     }
     created.characters += 1;
   }

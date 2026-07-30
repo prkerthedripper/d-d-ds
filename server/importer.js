@@ -128,20 +128,52 @@ function normalizeEntry(kind, raw) {
   return entry;
 }
 
+// Any spelling of the six abilities, folded to our short keys.
+const STAT_KEY = {
+  str: 'str', strength: 'str', dex: 'dex', dexterity: 'dex', con: 'con', constitution: 'con',
+  int: 'int', intelligence: 'int', wis: 'wis', wisdom: 'wis', cha: 'cha', charisma: 'cha',
+};
+
+/**
+ * Pull ability scores out of a list-shaped stat block, like Chronica's
+ * char_stat_data: [{ name: 'Strength', value: 16 }, …]. Unknown stats are
+ * ignored; recognised ones win over the object form.
+ */
+function statsFromArray(arr) {
+  const out = {};
+  for (const s of asArray(arr)) {
+    const label = str(firstOf(s, ['name', 'label', 'stat', 'stat_name', 'statname', 'key', 'abbr', 'abbreviation']))
+      .toLowerCase().replace(/[^a-z]/g, '');
+    const key = STAT_KEY[label];
+    if (!key) continue;
+    const val = int(firstOf(s, ['value', 'val', 'score', 'total', 'base', 'current'], NaN), NaN);
+    if (Number.isFinite(val)) out[key] = val;
+  }
+  return out;
+}
+
+// Where a character's own carried items might live.
+const CHAR_ITEM_KEYS = ['items', 'inventory', 'character_items', 'characteritems', 'equipment', 'gear', 'possessions', 'belongings'];
+
 function normalizeCharacter(raw) {
-  const stats = firstOf(raw, ['stats', 'abilities', 'abilityscores'], {}) || {};
-  const pick = (keys, d = 10) => int(firstOf({ ...raw, ...stats }, keys), d);
+  const statObj = firstOf(raw, ['stats', 'abilities', 'abilityscores', 'ability_scores'], {}) || {};
+  const statArr = statsFromArray(firstOf(raw, ['char_stat_data', 'charstatdata', 'stat_data', 'statdata', 'stats'], []));
+  const lookup = { ...raw, ...statObj };
+  const pick = (keys, d = 10) => {
+    for (const k of keys) if (STAT_KEY[k] && statArr[STAT_KEY[k]] != null) return statArr[STAT_KEY[k]];
+    return int(firstOf(lookup, keys), d);
+  };
 
   return {
-    name: str(firstOf(raw, ['name', 'title', 'charactername'])) || 'Imported Character',
+    name: str(firstOf(raw, ['name', 'title', 'charactername', 'character_name'])) || 'Imported Character',
     race: str(firstOf(raw, ['race', 'ancestry', 'species'])),
     class: str(firstOf(raw, ['class', 'classes', 'archetype', 'npc_class', 'npcclass'])),
     level: int(firstOf(raw, ['level', 'lvl'], 1), 1),
-    maxHp: int(firstOf(raw, ['maxhp', 'hp', 'hitpoints', 'health'], 10), 10),
-    ac: int(firstOf(raw, ['ac', 'armorclass', 'armourclass', 'armor'], 10), 10),
+    maxHp: int(firstOf(raw, ['maxhp', 'max_hp', 'hp', 'hitpoints', 'hit_points', 'health'], 10), 10),
+    ac: int(firstOf(raw, ['ac', 'armorclass', 'armor_class', 'armourclass', 'armor', 'defense'], 10), 10),
     speed: int(firstOf(raw, ['speed', 'movement'], 30), 30),
-    initBonus: int(firstOf(raw, ['initbonus', 'initiative', 'init'], 0), 0),
-    profBonus: int(firstOf(raw, ['profbonus', 'proficiency', 'prof'], 2), 2),
+    initBonus: int(firstOf(raw, ['initbonus', 'init_bonus', 'initiative', 'init'], 0), 0),
+    profBonus: int(firstOf(raw, ['profbonus', 'prof_bonus', 'proficiency', 'prof'], 2), 2),
     portrait: imageOf(raw),
     stats: {
       str: pick(['str', 'strength']),
@@ -152,6 +184,10 @@ function normalizeCharacter(raw) {
       cha: pick(['cha', 'charisma']),
     },
     notes: bodyOf(raw),
+    // Keep the source id and any carried items so loose library items can be
+    // matched back to their owner.
+    chronicaId: firstOf(raw, ['id', 'character_id', 'uuid'], null),
+    items: asArray(firstOf(raw, CHAR_ITEM_KEYS, [])).map(normalizeItem),
   };
 }
 
@@ -240,10 +276,28 @@ export function planImport(payload) {
     if (arr.length) { for (const raw of arr) plan.notes.push(normalizeNote(raw)); break; }
   }
 
-  // Loose items — Chronica's is `master_item_library`.
-  for (const alias of ['items', 'master_item_library', 'inventory', 'loot', 'treasure', 'item_library']) {
+  // Items — Chronica's campaign library is `master_item_library`. An item that
+  // names an owner goes into that character's bag; the rest are loose loot.
+  const byId = new Map();
+  const byName = new Map();
+  for (const c of plan.characters) {
+    if (c.chronicaId != null) byId.set(String(c.chronicaId), c);
+    byName.set(c.name.toLowerCase(), c);
+  }
+
+  for (const alias of ['items', 'master_item_library', 'inventory', 'loot', 'treasure', 'item_library', 'campaign_items']) {
     const arr = asArray(firstOf(root, [alias], []));
-    if (arr.length) { for (const raw of arr) plan.items.push(normalizeItem(raw)); break; }
+    if (!arr.length) continue;
+    for (const raw of arr) {
+      const item = normalizeItem(raw);
+      const ownerId = firstOf(raw, ['character_id', 'owner_id', 'char_id', 'owned_by', 'holder_id', 'assigned_to'], null);
+      const ownerName = str(firstOf(raw, ['character', 'character_name', 'owner', 'owner_name', 'holder', 'assigned']));
+      const owner = (ownerId != null && byId.get(String(ownerId)))
+        || (ownerName && byName.get(ownerName.toLowerCase()));
+      if (owner) owner.items.push(item);
+      else plan.items.push(item);
+    }
+    break;
   }
 
   return plan;
@@ -253,6 +307,8 @@ export function planImport(payload) {
 export function summarize(plan) {
   const byKind = {};
   for (const e of plan.entries) byKind[e.kind] = (byKind[e.kind] || 0) + 1;
+  // Items on characters count too, not just loose loot.
+  const carried = plan.characters.reduce((n, c) => n + (c.items?.length || 0), 0);
   return {
     characters: plan.characters.length,
     npc: byKind.npc || 0,
@@ -261,6 +317,6 @@ export function summarize(plan) {
     shop: byKind.shop || 0,
     event: byKind.event || 0,
     notes: plan.notes.length,
-    items: plan.items.length,
+    items: plan.items.length + carried,
   };
 }

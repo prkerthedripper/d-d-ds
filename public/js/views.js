@@ -2113,21 +2113,12 @@ function importExportCard() {
   <div class="card" style="margin-top:16px">
     <div class="card-head">${icon('book', { size: 17 })}<h3>Import &amp; backup</h3></div>
 
-    <p class="muted" style="margin-bottom:6px">
-      Bring a whole campaign in from Chronica — characters, NPCs, quests, locations,
-      shops, timeline and notes.
-    </p>
-    <p class="tiny" style="margin-bottom:14px">
-      In Chronica, Export each part of your campaign — it saves one JSON file per
-      section (characters, shops, items…). <b>Select all of them together here</b>
-      and they’ll be combined into a single import.
-    </p>
+    <p class="muted" style="margin-bottom:14px">Import your Chronica data here.</p>
 
     <div class="row" style="margin-bottom:12px">
       <button class="btn primary" data-act="pick-import-file">
         ${icon('backpack', { size: 15 })} Choose files…</button>
       <button class="btn" data-act="paste-import">${icon('notes', { size: 15 })} Paste instead</button>
-      <button class="btn" data-act="download-template">${icon('arrowDown', { size: 15 })} Get a template</button>
     </div>
 
     ${preview ? `
@@ -2148,22 +2139,6 @@ function importExportCard() {
         </div>
         <p class="tiny" style="margin-top:8px">This adds to your campaign — it never deletes what is already here.</p>
       </div>` : ''}
-
-    <details style="margin-top:14px">
-      <summary style="cursor:pointer;font-weight:600;font-size:13.5px">How do I get my data out of Chronica?</summary>
-      <div class="muted" style="font-size:13px;margin-top:10px;line-height:1.6">
-        In Chronica, open your campaign and use its <b>Export</b> option. It downloads
-        one JSON file for each part of the campaign — one for characters, one for
-        shops, one for the item library, and so on. Grab all of them, then click
-        <b>Choose files…</b> above and select the whole batch at once.
-        <ul style="margin:8px 0;padding-left:20px">
-          <li>This importer reads Chronica’s field names automatically — no editing needed.</li>
-          <li>Empty sections just import nothing; that’s fine.</li>
-          <li>Nothing is deleted, so you can re-import safely at any time.</li>
-        </ul>
-        No Chronica export? Use <b>Get a template</b> and fill it in by hand instead.
-      </div>
-    </details>
 
     <hr style="border:0;border-top:1px solid var(--line-soft);margin:16px 0" />
     <button class="btn" data-act="export-campaign">
