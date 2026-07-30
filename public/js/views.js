@@ -10,6 +10,7 @@ export const NAV = [
   { id: 'home', label: 'Home', icon: 'home' },
   { id: 'characters', label: 'Characters', icon: 'shield' },
   { id: 'inventory', label: 'Inventory', icon: 'backpack' },
+  { id: 'library', label: 'Item Library', icon: 'gem' },
   { id: 'dice', label: 'Dice Roller', icon: 'dice' },
   { id: 'combat', label: 'Combat', icon: 'swords' },
   { id: 'spells', label: 'Spells', icon: 'sparkles' },
@@ -740,6 +741,7 @@ function pageView() {
     case 'home': return homeView();
     case 'characters': return charactersView();
     case 'inventory': return inventoryView();
+    case 'library': return libraryView();
     case 'dice': return diceView();
     case 'combat': return combatView();
     case 'spells': return spellsView();
@@ -1194,6 +1196,73 @@ on('use-item', async (el) => {
   const item = c.items.find((i) => i.id === el.dataset.id);
   await api('POST', `/api/items/${el.dataset.id}/use`);
   toast(`Used ${item?.name || 'item'}`);
+});
+
+// ---------------------------------------------------------------- item library
+
+const ITEM_TAGS = ['Consumable', 'Quest', 'Magic', 'Equipment', 'Treasure', 'Container'];
+const TAG_TINT = {
+  Consumable: '#2e9e5b', Quest: '#8a4fbf', Magic: '#5b3fd6',
+  Equipment: '#a06a2c', Treasure: '#d4a94e', Container: '#7a7686',
+};
+
+/** The campaign's master item library — define once, drop copies anywhere. */
+function libraryView() {
+  const dm = isDM();
+  const q = state.filter.toLowerCase();
+  const list = state.library.filter((i) => !q
+    || i.name.toLowerCase().includes(q)
+    || (i.tags || []).some((t) => t.toLowerCase().includes(q))
+    || i.category.toLowerCase().includes(q));
+
+  return `
+  <div class="page-head spread">
+    <div><h1>Item Library</h1><p>Build items once, then drop copies into any bag or shop.</p></div>
+    ${dm ? `<button class="btn primary" data-act="modal" data-name="lib-item">
+      ${icon('plus', { size: 15 })} New Item</button>` : ''}
+  </div>
+
+  <input placeholder="Search the library…" data-live="filter" data-keep="lib-q"
+    value="${esc(state.filter)}" style="margin-bottom:16px" />
+
+  ${list.length ? `
+    <div class="grid g3">
+      ${list.map((i) => `
+        <div class="card lib-card">
+          <div class="row" style="flex-wrap:nowrap;align-items:flex-start">
+            ${i.image
+              ? `<div class="avatar lg" style="background-image:url('${esc(i.image)}')"></div>`
+              : itemTile(i.category, 46)}
+            <div class="grow">
+              <div style="font-weight:700;font-size:15px">${esc(i.name)}</div>
+              <div class="tiny">${esc(i.category)}${i.value ? ` · ${esc(i.value)}` : ''}${i.weight ? ` · ${i.weight} lb` : ''}</div>
+              ${(i.tags || []).length ? `<div class="row" style="gap:5px;margin-top:6px">
+                ${i.tags.map((t) => `<span class="lib-tag" style="--tint:${TAG_TINT[t] || 'var(--accent)'}">${esc(t)}</span>`).join('')}
+              </div>` : ''}
+            </div>
+          </div>
+          ${i.description ? `<p class="muted" style="margin-top:10px;font-size:13px">${esc(i.description)}</p>` : ''}
+          <div class="row" style="margin-top:12px">
+            <button class="btn sm primary grow" data-act="modal" data-name="lib-give" data-id="${i.id}">
+              ${icon('arrowRight', { size: 13 })} Give / Add to shop</button>
+            ${dm ? `
+              <button class="btn sm" data-act="modal" data-name="lib-item" data-id="${i.id}">${icon('edit', { size: 13 })}</button>
+              <button class="btn sm danger" data-act="lib-del" data-id="${i.id}">${icon('trash', { size: 13 })}</button>` : ''}
+          </div>
+        </div>`).join('')}
+    </div>`
+  : `<div class="card empty">
+      <div class="big">${icon('gem', { size: 40 })}</div>
+      <p style="font-weight:650;color:var(--ink)">The library is empty.</p>
+      <p class="tiny">${dm ? 'Add items here, or import a Chronica library in Settings.' : 'Your DM builds the item library.'}</p>
+      ${dm ? `<button class="btn primary" style="margin-top:14px" data-act="modal" data-name="lib-item">
+        ${icon('plus', { size: 15 })} New Item</button>` : ''}
+    </div>`}`;
+}
+
+on('lib-del', async (el) => {
+  if (!confirm('Remove this item from the library?')) return;
+  await api('DELETE', `/api/library/${el.dataset.id}`);
 });
 
 // ---------------------------------------------------------------- dice
@@ -2281,6 +2350,8 @@ function modalBody(name) {
     case 'new-char': return charFormModal(null);
     case 'edit-char': return charFormModal(state.characters.find((c) => c.id === state.modal.id));
     case 'new-item': return itemModal();
+    case 'lib-item': return libItemModal(state.library.find((i) => i.id === state.modal.id));
+    case 'lib-give': return libGiveModal(state.library.find((i) => i.id === state.modal.id));
     case 'new-note': return noteModal(null);
     case 'edit-note': return noteModal(state.notes.find((n) => n.id === state.modal.id));
     case 'add-enemy': return enemyModal();
@@ -2480,10 +2551,146 @@ on('save-char', async (form) => {
   render();
 });
 
+/** Create or edit a library item — name, value, weight, tags, effect. */
+function libItemModal(item) {
+  const draftImage = state.draftImage ?? item?.image ?? '';
+  const tags = item?.tags || [];
+  const cats = ['Weapon', 'Armor', 'Potion', 'Gear', 'Quest Item', 'Ammunition', 'Other'];
+
+  return `
+  <h2>${item ? 'Edit' : 'New'} Library Item</h2>
+  <form data-act="save-lib-item" data-id="${item?.id || ''}">
+    <div class="row" style="align-items:flex-start;flex-wrap:nowrap;margin-bottom:12px">
+      <div class="portrait-slot">
+        ${draftImage
+          ? `<div class="avatar lg" style="background-image:url('${esc(draftImage)}')"></div>`
+          : itemTile(item?.category || 'Gear', 62)}
+        <button type="button" class="portrait-edit" data-act="pick-lib-image" title="Add a picture">
+          ${icon('edit', { size: 13 })}</button>
+      </div>
+      <div class="grow">
+        <label class="field"><span>Name</span>
+          <input name="name" data-keep="li-n" value="${esc(item?.name || '')}" required /></label>
+        <label class="field"><span>Type</span>
+          <select name="category">${cats.map((k) => `<option ${k === item?.category ? 'selected' : ''}>${k}</option>`).join('')}</select></label>
+      </div>
+    </div>
+
+    <div class="row">
+      <label class="field grow"><span>Value</span>
+        <input name="value" data-keep="li-v" value="${esc(item?.value || '')}" placeholder="50 gp" /></label>
+      <label class="field grow"><span>Weight (lb)</span>
+        <input name="weight" type="number" step="0.1" value="${item?.weight ?? 0}" /></label>
+      <label class="field grow"><span>Quantity</span>
+        <input name="qty" type="number" min="1" value="${item?.qty ?? 1}" /></label>
+    </div>
+
+    <label class="field"><span>Description / notes</span>
+      <textarea name="description" data-keep="li-d" style="min-height:80px">${esc(item?.description || '')}</textarea></label>
+
+    <p class="tiny" style="margin-bottom:6px">TAGS</p>
+    <div class="row" style="margin-bottom:12px">
+      ${ITEM_TAGS.map((t) => `
+        <label class="pill lib-tag-pick">
+          <input type="checkbox" name="tag" value="${t}" ${tags.includes(t) ? 'checked' : ''} hidden />
+          <span style="--tint:${TAG_TINT[t]}">${esc(t)}</span>
+        </label>`).join('')}
+    </div>
+
+    <label class="row" style="margin-bottom:12px">
+      <input type="checkbox" name="healing" style="width:auto" ${item?.effect?.kind === 'heal' ? 'checked' : ''} />
+      <span class="muted">This heals when used</span>
+      <input name="healAmount" style="width:110px" placeholder="2d4+2"
+        value="${esc(item?.effect?.kind === 'heal' ? item.effect.amount : '')}" />
+    </label>
+
+    <div class="row">
+      <button class="btn" type="button" data-act="close-modal">Cancel</button>
+      <button class="btn primary grow" type="submit">${item ? 'Save' : 'Add to library'}</button>
+    </div>
+  </form>`;
+}
+
+on('pick-lib-image', async () => {
+  const image = await pickImage(420);
+  if (!image) return;
+  state.draftImage = image;
+  render();
+});
+
+on('save-lib-item', async (form) => {
+  const tags = [...form.querySelectorAll('[name="tag"]:checked')].map((c) => c.value);
+  const heals = form.querySelector('[name="healing"]')?.checked;
+  const amount = val(form, 'healAmount').trim();
+  const payload = {
+    name: val(form, 'name'), category: val(form, 'category'), value: val(form, 'value'),
+    weight: num(form, 'weight'), qty: num(form, 'qty'), description: val(form, 'description'),
+    tags: heals && !tags.includes('Consumable') ? [...tags, 'Consumable'] : tags,
+    effect: heals ? { kind: 'heal', amount: amount || '2d4+2' } : null,
+  };
+  if (state.draftImage !== undefined) payload.image = state.draftImage;
+
+  if (form.dataset.id) await api('PATCH', `/api/library/${form.dataset.id}`, payload);
+  else await api('POST', `/api/campaigns/${state.campaign.id}/library`, payload);
+
+  state.draftImage = undefined;
+  state.modal = null;
+  render();
+});
+
+/** Copy a library item into a character's bag, or (DM) a shop's stock. */
+function libGiveModal(item) {
+  if (!item) return '<p class="muted">Item not found.</p>';
+  const targets = isDM() ? state.characters : myChars();
+  const shops = isDM() ? state.entries.filter((e) => e.kind === 'shop') : [];
+
+  return `
+  <h2>Give ${esc(item.name)}</h2>
+  <p class="muted" style="margin-bottom:14px">Drop a copy into a bag${shops.length ? ' or a shop' : ''}.</p>
+
+  ${targets.length ? `
+    <p class="tiny" style="margin-bottom:6px">TO A CHARACTER</p>
+    <div class="stack" style="margin-bottom:16px">
+      ${targets.map((c) => `
+        <button class="card spread" style="cursor:pointer;text-align:left;padding:11px"
+          data-act="lib-copy" data-id="${item.id}" data-char="${c.id}">
+          <div class="row">${avatar(c.name, '', c.portrait)}
+            <span style="font-weight:650;font-size:14px">${esc(c.name)}</span></div>
+          ${icon('arrowRight', { size: 16 })}
+        </button>`).join('')}
+    </div>` : '<p class="muted">No characters to give it to.</p>'}
+
+  ${shops.length ? `
+    <p class="tiny" style="margin-bottom:6px">ADD TO A SHOP</p>
+    <div class="stack" style="margin-bottom:16px">
+      ${shops.map((s) => `
+        <button class="card spread" style="cursor:pointer;text-align:left;padding:11px"
+          data-act="lib-copy" data-id="${item.id}" data-shop="${s.id}">
+          <div class="row">${itemTile('Gear', 30)}
+            <span style="font-weight:650;font-size:14px">${esc(s.title)}</span></div>
+          ${icon('arrowRight', { size: 16 })}
+        </button>`).join('')}
+    </div>` : ''}
+
+  <button class="btn wide" data-act="close-modal">Done</button>`;
+}
+
+on('lib-copy', async (el) => {
+  const body = el.dataset.char ? { toCharacter: el.dataset.char } : { toShop: el.dataset.shop };
+  await api('POST', `/api/library/${el.dataset.id}/copy`, body);
+  toast(el.dataset.char ? 'Added to their inventory' : 'Added to the shop');
+  state.modal = null;
+  render();
+});
+
 function itemModal() {
   const tab = state.itemTab || 'catalog';
   const q = (state.itemFilter || '').toLowerCase();
-  const catalog = (state.srd.itemCatalog || [])
+  // The campaign's own library first, then the built-in 5e catalogue.
+  const fromLibrary = state.library.map((i) => ({
+    name: i.name, category: i.category, details: i.description, price: i.value, effect: i.effect, source: 'library',
+  }));
+  const catalog = [...fromLibrary, ...(state.srd.itemCatalog || [])]
     .filter((i) => !q || i.name.toLowerCase().includes(q) || i.category.toLowerCase().includes(q));
 
   return `
@@ -2505,6 +2712,7 @@ function itemModal() {
             ${itemTile(i.category, 34)}
             <div>
               <div style="font-size:13.5px;font-weight:650">${esc(i.name)}
+                ${i.source === 'library' ? '<span class="tag" style="margin-left:4px">library</span>' : ''}
                 ${i.effect && i.effect.kind !== 'food' && i.effect.kind !== null
                   ? '<span class="tag" style="margin-left:4px">usable</span>' : ''}</div>
               <div class="tiny">${esc(i.details)}${i.price ? ` · ${esc(i.price)}` : ''}</div>
@@ -2538,7 +2746,10 @@ on('item-filter', (el) => { state.itemFilter = el.value; render(); });
 
 on('add-catalog-item', async (el) => {
   const c = selected();
-  const item = (state.srd.itemCatalog || []).find((i) => i.name === el.dataset.name);
+  const lib = state.library.find((i) => i.name === el.dataset.name);
+  const item = lib
+    ? { name: lib.name, category: lib.category, details: lib.description, weight: lib.weight, effect: lib.effect }
+    : (state.srd.itemCatalog || []).find((i) => i.name === el.dataset.name);
   if (!item) return;
   await api('POST', `/api/characters/${c.id}/items`, {
     name: item.name, category: item.category, details: item.details,

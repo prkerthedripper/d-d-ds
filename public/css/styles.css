@@ -1133,3 +1133,18 @@ td { padding: 13px 16px; border-top: 1px solid var(--line-soft); font-size: 14px
 .death-inline { display: flex; align-items: center; gap: 10px; margin-top: 6px; }
 .death-inline .pips { gap: 4px; }
 .death-inline .pip { width: 10px; height: 10px; }
+
+/* ---------------------------------------------------------------- item library */
+
+.lib-card { display: flex; flex-direction: column; }
+.lib-tag {
+  display: inline-block; padding: 2px 9px; border-radius: 999px;
+  font-size: 10.5px; font-weight: 700; letter-spacing: .3px;
+  color: var(--tint, var(--accent));
+  background: color-mix(in srgb, var(--tint, var(--accent)) 14%, transparent);
+  border: 1px solid color-mix(in srgb, var(--tint, var(--accent)) 32%, transparent);
+}
+.lib-tag-pick { cursor: pointer; }
+.lib-tag-pick span { color: var(--tint); }
+.lib-tag-pick:has(input:checked) { background: var(--tint); border-color: var(--tint); }
+.lib-tag-pick:has(input:checked) span { color: #fff; }

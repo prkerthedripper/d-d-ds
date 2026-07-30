@@ -296,6 +296,7 @@ app.get('/api/campaigns/:id', auth, requireMember, wrap(async (req, res) => {
     messages: await loadMessages(id),
     invites: isDM ? await all('SELECT id, email, status FROM invites WHERE campaign_id = ?', [id]) : [],
     entries: await loadEntries(id, isDM),
+    library: await loadLibrary(id),
     presets: (await all('SELECT * FROM enemy_presets WHERE campaign_id = ? ORDER BY name', [id])).map((r) => ({
       id: r.id, name: r.name, cr: r.cr, hp: r.hp, ac: r.ac,
       initBonus: r.init_bonus, speed: r.speed, attacks: P(r.attacks, []),
@@ -1524,6 +1525,126 @@ app.post('/api/campaigns/:id/combat/loot', auth, requireMember, requireDM, wrap(
   res.json({ items, copper });
 }));
 
+// ---------------------------------------------------------------- item library
+
+const ITEM_TAGS = ['Consumable', 'Quest', 'Magic', 'Equipment', 'Treasure', 'Container'];
+
+function shapeLibraryItem(r) {
+  return {
+    id: r.id, name: r.name, category: r.category, description: r.description,
+    value: r.value, weight: r.weight, qty: r.qty, tags: P(r.tags, []),
+    image: r.image, effect: P(r.effect, null),
+  };
+}
+
+async function loadLibrary(campaignId) {
+  const rows = await all('SELECT * FROM library_items WHERE campaign_id = ? ORDER BY name', [campaignId]);
+  return rows.map(shapeLibraryItem);
+}
+
+const pushLibrary = async (campaignId) => emit(campaignId, 'library', await loadLibrary(campaignId));
+
+app.get('/api/campaigns/:id/library', auth, requireMember, wrap(async (req, res) => {
+  res.json({ library: await loadLibrary(req.campaignId) });
+}));
+
+app.post('/api/campaigns/:id/library', auth, requireMember, requireDM, wrap(async (req, res) => {
+  const b = req.body || {};
+  const name = str(b.name);
+  if (!name) throw bad('Give the item a name');
+  const tags = Array.isArray(b.tags) ? b.tags.filter((t) => ITEM_TAGS.includes(t)) : [];
+
+  const id = uid();
+  await run(
+    `INSERT INTO library_items (id, campaign_id, name, category, description, value, weight, qty, tags, image, effect, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [id, req.campaignId, name.slice(0, 60), str(b.category) || 'Gear', str(b.description).slice(0, 500),
+      str(b.value).slice(0, 30), Number(b.weight) || 0, Math.max(1, Number(b.qty) || 1),
+      J(tags), checkImage(b.image), b.effect ? J(b.effect) : '', now()],
+  );
+  await pushLibrary(req.campaignId);
+  res.json({ id });
+}));
+
+/** Resolve a library item and confirm the caller's DM rights on its campaign. */
+const libraryAccess = wrap(async (req, res, next) => {
+  const item = await get('SELECT * FROM library_items WHERE id = ?', [req.params.id]);
+  if (!item) return res.status(404).json({ error: 'Item not found' });
+  const m = await membership(item.campaign_id, req.user.id);
+  if (!m) return res.status(403).json({ error: 'Not your campaign' });
+  req.libItem = item;
+  req.membership = m;
+  req.campaignId = item.campaign_id;
+  next();
+});
+
+app.patch('/api/library/:id', auth, libraryAccess, requireDM, wrap(async (req, res) => {
+  const cols = { name: 'name', category: 'category', description: 'description', value: 'value' };
+  for (const [key, col] of Object.entries(cols)) {
+    if (req.body[key] !== undefined) await run(`UPDATE library_items SET ${col} = ? WHERE id = ?`, [str(req.body[key]), req.params.id]);
+  }
+  if (req.body.weight !== undefined) await run('UPDATE library_items SET weight = ? WHERE id = ?', [Number(req.body.weight) || 0, req.params.id]);
+  if (req.body.qty !== undefined) await run('UPDATE library_items SET qty = ? WHERE id = ?', [Math.max(1, Number(req.body.qty) || 1), req.params.id]);
+  if (req.body.tags !== undefined) {
+    const tags = Array.isArray(req.body.tags) ? req.body.tags.filter((t) => ITEM_TAGS.includes(t)) : [];
+    await run('UPDATE library_items SET tags = ? WHERE id = ?', [J(tags), req.params.id]);
+  }
+  if (req.body.image !== undefined) await run('UPDATE library_items SET image = ? WHERE id = ?', [checkImage(req.body.image), req.params.id]);
+  if (req.body.effect !== undefined) await run('UPDATE library_items SET effect = ? WHERE id = ?', [req.body.effect ? J(req.body.effect) : '', req.params.id]);
+  await pushLibrary(req.campaignId);
+  res.json({ ok: true });
+}));
+
+app.delete('/api/library/:id', auth, libraryAccess, requireDM, wrap(async (req, res) => {
+  await run('DELETE FROM library_items WHERE id = ?', [req.params.id]);
+  await pushLibrary(req.campaignId);
+  res.json({ ok: true });
+}));
+
+/**
+ * Clone a library item into a destination — a character's bag or a shop's
+ * stock. This is the heart of the library: define once, drop copies anywhere.
+ */
+app.post('/api/library/:id/copy', auth, libraryAccess, wrap(async (req, res) => {
+  const item = shapeLibraryItem(req.libItem);
+  const consumable = item.tags.includes('Consumable') || item.effect;
+  const qty = Math.max(1, Number(req.body.qty) || item.qty || 1);
+
+  if (req.body.toCharacter) {
+    const character = await get('SELECT * FROM characters WHERE id = ?', [req.body.toCharacter]);
+    if (!character || character.campaign_id !== req.campaignId) throw bad('Character not found', 404);
+    if (req.membership.role !== 'dm' && character.owner_id !== req.user.id) throw bad('That is not your character', 403);
+
+    const existing = await get('SELECT * FROM items WHERE character_id = ? AND name = ?', [character.id, item.name]);
+    if (existing) {
+      await run('UPDATE items SET qty = ? WHERE id = ?', [existing.qty + qty, existing.id]);
+    } else {
+      await run(
+        `INSERT INTO items (id, character_id, name, category, details, weight, qty, equipped, effect, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`,
+        [uid(), character.id, item.name, item.category, item.description, item.weight, qty,
+          item.effect ? J(item.effect) : '', now()],
+      );
+    }
+    emit(req.campaignId, 'characters', await loadCharacters(req.campaignId));
+    await logCombat(req.campaignId, req.user.id, `${character.name} receives ${qty > 1 ? `${qty}× ` : ''}${item.name}.`);
+    return res.json({ ok: true });
+  }
+
+  if (req.body.toShop) {
+    if (req.membership.role !== 'dm') throw bad('DM only', 403);
+    const shop = await get('SELECT * FROM entries WHERE id = ? AND kind = ?', [req.body.toShop, 'shop']);
+    if (!shop || shop.campaign_id !== req.campaignId) throw bad('Shop not found', 404);
+    const data = P(shop.data, {});
+    data.stock = [...(data.stock || []), { name: item.name, price: item.value, category: item.category }];
+    await run('UPDATE entries SET data = ?, updated_at = ? WHERE id = ?', [J(data), now(), shop.id]);
+    await pushEntries(req.campaignId);
+    return res.json({ ok: true });
+  }
+
+  throw bad('Choose where to copy it');
+}));
+
 // ---------------------------------------------------------------- enemy presets
 
 app.get('/api/campaigns/:id/presets', auth, requireMember, wrap(async (req, res) => {
@@ -1576,6 +1697,7 @@ app.get('/api/campaigns/:id/export', auth, requireMember, requireDM, wrap(async 
     characters: await loadCharacters(id),
     entries: await loadEntries(id, true),
     notes: await loadNotes(id, true),
+    master_item_library: await loadLibrary(id),
     presets: (await all('SELECT * FROM enemy_presets WHERE campaign_id = ?', [id])).map((r) => ({
       name: r.name, cr: r.cr, hp: r.hp, ac: r.ac, initBonus: r.init_bonus,
       speed: r.speed, attacks: P(r.attacks, []), loot: P(r.loot, []), note: r.note,
@@ -1593,7 +1715,19 @@ app.post('/api/campaigns/:id/import/preview', auth, requireMember, requireDM, wr
 app.post('/api/campaigns/:id/import', auth, requireMember, requireDM, wrap(async (req, res) => {
   const id = req.campaignId;
   const plan = planImport(req.body?.data ?? req.body);
-  const created = { characters: 0, entries: 0, notes: 0, items: 0 };
+  const created = { characters: 0, entries: 0, notes: 0, items: 0, library: 0 };
+
+  for (const li of plan.library) {
+    await run(
+      `INSERT INTO library_items (id, campaign_id, name, category, description, value, weight, qty, tags, image, effect, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, '', ?)`,
+      [uid(), id, str(li.name).slice(0, 60) || 'Item', str(li.category) || 'Gear', str(li.description).slice(0, 500),
+        str(li.value).slice(0, 30), Number(li.weight) || 0, Math.max(1, Number(li.qty) || 1),
+        J(Array.isArray(li.tags) ? li.tags : []),
+        /^data:image\//.test(li.image || '') && li.image.length < 700_000 ? li.image : '', now()],
+    );
+    created.library += 1;
+  }
 
   for (const c of plan.characters) {
     const charId = uid();
@@ -1672,6 +1806,7 @@ app.post('/api/campaigns/:id/import', auth, requireMember, requireDM, wrap(async
   await pushEntries(id);
   await pushNotes(id);
   emit(id, 'presets', null);
+  await pushLibrary(id);
 
   await logCombat(id, req.user.id,
     `Imported ${created.characters} characters, ${created.entries} codex entries and ${created.notes} notes.`);

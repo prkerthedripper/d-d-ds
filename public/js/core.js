@@ -22,6 +22,7 @@ export const state = {
   },
   attackFrom: null, // combatant id picking a target
   entries: [],
+  library: [],
   codexTab: 'quest',
   turnAlert: null, // combatant whose turn just started, shown as a popup
   lastTurnKey: null, // guards against re-alerting on every render
@@ -275,6 +276,7 @@ export async function openCampaign(id) {
   state.campaignInvites = data.invites || [];
   state.presets = data.presets || [];
   state.entries = data.entries || [];
+  state.library = data.library || [];
   state.lastTurnKey = null; // a fresh load should not fire a stale turn alert
   state.turnAlert = null;
   state.selectedCharId = myChars()[0]?.id || state.characters[0]?.id || null;
@@ -355,6 +357,7 @@ export function initSocket() {
       case 'members': state.members = data; break;
       case 'characters': state.characters = data; break;
       case 'entries': state.entries = data; break;
+      case 'library': state.library = data; break;
       case 'combat':
         state.combat = data;
         checkMyTurn();

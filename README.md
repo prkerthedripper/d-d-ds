@@ -51,6 +51,12 @@ everyone on their own phone, everything synced instantly.
   plus any custom enemies the DM saves. Drop them into a fight in two clicks,
   several at a time
 - **Spells** — 5e reference for the common low-level spells, per-character known list
+- **Item Library** — a Chronica-style master library of items for the campaign.
+  Build each item once (name, value, weight, description, tags like Consumable or
+  Quest, an optional picture, and a heal effect), then drop copies into any
+  character's bag or a shop's stock. Library items also show up in the inventory
+  "add from list" picker, and Chronica's `master_item_library` imports straight
+  into it.
 - **Notes** — shared with the party, or DM-only
 - **Party chat**
 - **Import & backup** (Settings, DM only) — pull a whole campaign in from Chronica

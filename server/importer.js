@@ -222,6 +222,29 @@ function normalizeItem(raw) {
   };
 }
 
+// Chronica's tag words we can recognise on an imported item.
+const KNOWN_TAGS = ['Consumable', 'Quest', 'Magic', 'Equipment', 'Treasure', 'Container'];
+
+/** A richer shape for an item destined for the campaign library. */
+function libraryItemFrom(raw, base) {
+  const rawTags = firstOf(raw, ['tags', 'item_tags', 'labels', 'flags'], []);
+  const tags = asArray(Array.isArray(rawTags) ? rawTags.map((t) => ({ name: t })) : rawTags)
+    .map((t) => str(typeof t === 'string' ? t : firstOf(t, ['name', 'label', 'tag'])))
+    .map((t) => KNOWN_TAGS.find((k) => k.toLowerCase() === t.toLowerCase()))
+    .filter(Boolean);
+
+  return {
+    name: base.name,
+    category: base.category,
+    description: base.details,
+    value: str(firstOf(raw, ['value', 'price', 'cost'])),
+    weight: base.weight,
+    qty: base.qty,
+    tags: [...new Set(tags)],
+    image: imageOf(raw),
+  };
+}
+
 /**
  * Turn an arbitrary parsed payload into a clean plan of what to create.
  * Accepts either a flat object with named sections, or a Chronica-ish
@@ -233,7 +256,7 @@ export function planImport(payload) {
     ? { ...merged, ...merged.campaign }
     : (merged || {});
 
-  const plan = { campaignName: str(firstOf(root, ['campaignname', 'name', 'title'])), characters: [], entries: [], notes: [], items: [] };
+  const plan = { campaignName: str(firstOf(root, ['campaignname', 'name', 'title'])), characters: [], entries: [], notes: [], items: [], library: [] };
 
   // Characters — Chronica keeps PCs and NPCs together in one array and marks the
   // difference, so we split them here.
@@ -285,9 +308,15 @@ export function planImport(payload) {
     byName.set(c.name.toLowerCase(), c);
   }
 
-  for (const alias of ['items', 'master_item_library', 'inventory', 'loot', 'treasure', 'item_library', 'campaign_items']) {
+  // The library sections define reusable items; loose "loot"/"treasure" is items
+  // just lying around. An item that names an owner always goes to their bag.
+  const LIBRARY_KEYS = ['master_item_library', 'item_library', 'campaign_items', 'items'];
+  const LOOT_KEYS = ['loot', 'treasure', 'inventory'];
+
+  for (const alias of [...LIBRARY_KEYS, ...LOOT_KEYS]) {
     const arr = asArray(firstOf(root, [alias], []));
     if (!arr.length) continue;
+    const intoLibrary = LIBRARY_KEYS.includes(alias);
     for (const raw of arr) {
       const item = normalizeItem(raw);
       const ownerId = firstOf(raw, ['character_id', 'owner_id', 'char_id', 'owned_by', 'holder_id', 'assigned_to'], null);
@@ -295,6 +324,7 @@ export function planImport(payload) {
       const owner = (ownerId != null && byId.get(String(ownerId)))
         || (ownerName && byName.get(ownerName.toLowerCase()));
       if (owner) owner.items.push(item);
+      else if (intoLibrary) plan.library.push(libraryItemFrom(raw, item));
       else plan.items.push(item);
     }
     break;
@@ -318,5 +348,6 @@ export function summarize(plan) {
     event: byKind.event || 0,
     notes: plan.notes.length,
     items: plan.items.length + carried,
+    library: plan.library.length,
   };
 }

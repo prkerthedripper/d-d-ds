@@ -158,6 +158,22 @@ const SCHEMA = [
     created_at BIGINT NOT NULL,
     updated_at BIGINT NOT NULL
   )`,
+  // The campaign's master item library — item definitions the DM builds once and
+  // clones into character bags or shops, Chronica-style.
+  `CREATE TABLE IF NOT EXISTS library_items (
+    id TEXT PRIMARY KEY,
+    campaign_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    category TEXT DEFAULT 'Gear',
+    description TEXT DEFAULT '',
+    value TEXT DEFAULT '',
+    weight REAL DEFAULT 0,
+    qty INTEGER DEFAULT 1,
+    tags TEXT NOT NULL DEFAULT '[]',
+    image TEXT DEFAULT '',
+    effect TEXT DEFAULT '',
+    created_at BIGINT NOT NULL
+  )`,
   `CREATE TABLE IF NOT EXISTS enemy_presets (
     id TEXT PRIMARY KEY,
     campaign_id TEXT NOT NULL,
@@ -256,5 +272,6 @@ export async function migrate() {
   await run(`CREATE INDEX IF NOT EXISTS idx_msg_campaign ON messages(campaign_id)`);
   await run(`CREATE INDEX IF NOT EXISTS idx_presets_campaign ON enemy_presets(campaign_id)`);
   await run(`CREATE INDEX IF NOT EXISTS idx_entries_campaign ON entries(campaign_id, kind)`);
+  await run(`CREATE INDEX IF NOT EXISTS idx_library_campaign ON library_items(campaign_id)`);
   console.log(`[db] ready (${usePg ? 'postgres' : 'sqlite'})`);
 }
