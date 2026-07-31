@@ -263,14 +263,28 @@ export async function migrate() {
   await addColumn('items', 'effect', `TEXT DEFAULT ''`);
   await addColumn('users', 'is_admin', 'INTEGER DEFAULT 0');
 
-  // The very first account to exist owns the site. On an existing database that
-  // means the earliest signup; on a fresh one the first person to register.
-  const admins = await get('SELECT COUNT(*) AS n FROM users WHERE is_admin = 1');
-  if (!Number(admins?.n)) {
-    const first = await get('SELECT id FROM users ORDER BY created_at LIMIT 1');
-    if (first) {
-      await run('UPDATE users SET is_admin = 1 WHERE id = ?', [first.id]);
-      console.log('[db] site owner set to the first registered account');
+  // Who owns the site. OWNER_EMAIL wins and is re-applied on every boot, so the
+  // owner can be moved by changing one setting. Without it, the earliest signup
+  // owns the site.
+  const ownerEmail = String(process.env.OWNER_EMAIL || '').trim().toLowerCase();
+  if (ownerEmail) {
+    const owner = await get('SELECT id, username FROM users WHERE email = ?', [ownerEmail]);
+    if (owner) {
+      await run('UPDATE users SET is_admin = 0 WHERE id <> ?', [owner.id]);
+      await run('UPDATE users SET is_admin = 1 WHERE id = ?', [owner.id]);
+      console.log(`[db] site owner: ${owner.username} <${ownerEmail}>`);
+    } else {
+      // They may not have registered yet — the signup route picks this up.
+      console.log(`[db] OWNER_EMAIL ${ownerEmail} has no account yet; it becomes owner on signup`);
+    }
+  } else {
+    const admins = await get('SELECT COUNT(*) AS n FROM users WHERE is_admin = 1');
+    if (!Number(admins?.n)) {
+      const first = await get('SELECT id FROM users ORDER BY created_at LIMIT 1');
+      if (first) {
+        await run('UPDATE users SET is_admin = 1 WHERE id = ?', [first.id]);
+        console.log('[db] site owner set to the first registered account');
+      }
     }
   }
   await addColumn('enemy_presets', 'loot', `TEXT DEFAULT '[]'`);

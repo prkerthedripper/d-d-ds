@@ -10,6 +10,10 @@ services:
         value: production
       - key: JWT_SECRET
         generateValue: true
+      # The account that owns the site: sees every account and can sign in as
+      # any of them. Change this to hand ownership to a different email.
+      - key: OWNER_EMAIL
+        value: parkerwidner514@gmail.com
       # Paste your Neon connection string in the Render dashboard.
       - key: DATABASE_URL
         sync: false

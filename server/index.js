@@ -237,9 +237,13 @@ app.post('/api/auth/register', wrap(async (req, res) => {
     throw bad('An account already uses that email');
   }
 
-  // Whoever signs up first owns the site.
+  // The configured owner claims the site whenever they register; otherwise the
+  // first account to exist owns it.
+  const ownerEmail = String(process.env.OWNER_EMAIL || '').trim().toLowerCase();
   const existing = await get('SELECT COUNT(*) AS n FROM users');
-  const isFirst = !Number(existing?.n);
+  const isFirst = ownerEmail
+    ? email === ownerEmail
+    : !Number(existing?.n);
 
   const user = { id: uid(), email, username };
   await run('INSERT INTO users (id, email, username, password_hash, is_admin, created_at) VALUES (?, ?, ?, ?, ?, ?)',

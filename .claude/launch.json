@@ -6,7 +6,10 @@
       "runtimeExecutable": "npm",
       "runtimeArgs": ["start"],
       "port": 3000,
-      "autoPort": false
+      "autoPort": false,
+      "env": {
+        "OWNER_EMAIL": "parkerwidner514@gmail.com"
+      }
     }
   ]
 }
