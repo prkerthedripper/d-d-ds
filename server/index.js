@@ -57,8 +57,14 @@ const wrap = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).cat
 
 const bad = (msg, status = 400) => Object.assign(new Error(msg), { status, expose: true });
 
-function sign(user) {
-  return jwt.sign({ uid: user.id }, SECRET, { expiresIn: '90d' });
+/**
+ * @param user      the account the session acts as
+ * @param adminId   the owner's id when they are signed in as someone else
+ */
+function sign(user, adminId = null) {
+  const payload = { uid: user.id };
+  if (adminId && adminId !== user.id) payload.admin = adminId;
+  return jwt.sign(payload, SECRET, { expiresIn: '90d' });
 }
 
 function setAuthCookie(res, token) {
@@ -80,12 +86,25 @@ function readToken(req) {
 async function userFromToken(token) {
   if (!token) return null;
   try {
-    const { uid: id } = jwt.verify(token, SECRET);
-    return await get('SELECT id, email, username FROM users WHERE id = ?', [id]);
+    const { uid: id, admin } = jwt.verify(token, SECRET);
+    const user = await get('SELECT id, email, username, is_admin FROM users WHERE id = ?', [id]);
+    if (!user) return null;
+    return {
+      id: user.id,
+      email: user.email,
+      username: user.username,
+      isAdmin: !!user.is_admin,
+      // Set when the owner is signed in as somebody else, so the UI can offer
+      // a way back and the audit trail stays honest.
+      actingAs: admin && admin !== user.id ? admin : null,
+    };
   } catch {
     return null;
   }
 }
+
+/** Look up the site owner's own record. */
+const adminUser = () => get('SELECT id, email, username FROM users WHERE is_admin = 1 ORDER BY created_at LIMIT 1');
 
 const auth = wrap(async (req, res, next) => {
   const user = await userFromToken(readToken(req));
@@ -218,12 +237,16 @@ app.post('/api/auth/register', wrap(async (req, res) => {
     throw bad('An account already uses that email');
   }
 
+  // Whoever signs up first owns the site.
+  const existing = await get('SELECT COUNT(*) AS n FROM users');
+  const isFirst = !Number(existing?.n);
+
   const user = { id: uid(), email, username };
-  await run('INSERT INTO users (id, email, username, password_hash, created_at) VALUES (?, ?, ?, ?, ?)',
-    [user.id, email, username, bcrypt.hashSync(password, 10), now()]);
+  await run('INSERT INTO users (id, email, username, password_hash, is_admin, created_at) VALUES (?, ?, ?, ?, ?, ?)',
+    [user.id, email, username, bcrypt.hashSync(password, 10), isFirst ? 1 : 0, now()]);
 
   setAuthCookie(res, sign(user));
-  res.json({ user });
+  res.json({ user: { ...user, isAdmin: isFirst } });
 }));
 
 app.post('/api/auth/login', wrap(async (req, res) => {
@@ -261,6 +284,59 @@ app.get('/api/me', wrap(async (req, res) => {
   );
 
   res.json({ user, campaigns, invites });
+}));
+
+// ---------------------------------------------------------------- owner tools
+
+/**
+ * The site owner can see who has signed up and open any of their accounts, so
+ * they can fix a sheet while that person is offline. Gated on the owner flag,
+ * and on the real owner behind the session — signing in as someone else must
+ * not hand that person the keys.
+ */
+const requireOwner = wrap(async (req, res, next) => {
+  const ownerId = req.user.actingAs || (req.user.isAdmin ? req.user.id : null);
+  if (!ownerId) return res.status(403).json({ error: 'Owner only' });
+  const owner = await get('SELECT id, is_admin FROM users WHERE id = ?', [ownerId]);
+  if (!owner?.is_admin) return res.status(403).json({ error: 'Owner only' });
+  req.ownerId = owner.id;
+  next();
+});
+
+app.get('/api/admin/users', auth, requireOwner, wrap(async (req, res) => {
+  const rows = await all(
+    `SELECT u.id, u.username, u.email, u.is_admin, u.created_at,
+            (SELECT COUNT(*) FROM memberships m WHERE m.user_id = u.id) AS campaigns
+     FROM users u ORDER BY u.created_at`,
+  );
+  res.json({
+    users: rows.map((r) => ({
+      id: r.id, username: r.username, email: r.email,
+      isAdmin: !!r.is_admin, campaigns: Number(r.campaigns) || 0,
+      createdAt: Number(r.created_at),
+    })),
+    ownerId: req.ownerId,
+    actingAs: req.user.actingAs ? req.user.id : null,
+  });
+}));
+
+/** Open somebody else's account. The owner's identity rides along in the token. */
+app.post('/api/admin/switch/:userId', auth, requireOwner, wrap(async (req, res) => {
+  const target = await get('SELECT id, email, username FROM users WHERE id = ?', [req.params.userId]);
+  if (!target) throw bad('That account does not exist', 404);
+
+  setAuthCookie(res, sign(target, req.ownerId));
+  res.json({ user: { ...target, isAdmin: target.id === req.ownerId } });
+}));
+
+/** Hand the session back to the owner. */
+app.post('/api/admin/return', auth, wrap(async (req, res) => {
+  if (!req.user.actingAs) throw bad('You are already yourself');
+  const owner = await get('SELECT id, email, username, is_admin FROM users WHERE id = ?', [req.user.actingAs]);
+  if (!owner?.is_admin) throw bad('Owner not found', 403);
+
+  setAuthCookie(res, sign(owner));
+  res.json({ user: { id: owner.id, email: owner.email, username: owner.username, isAdmin: true } });
 }));
 
 // ---------------------------------------------------------------- campaigns

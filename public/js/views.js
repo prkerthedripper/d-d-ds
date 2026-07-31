@@ -731,8 +731,96 @@ function topbarView() {
     ${state.combat.active && isDM()
       ? `<button class="btn primary sm" data-act="next-turn">Next Player ${icon('arrowRight', { size: 14 })}</button>`
       : ''}
+    ${accountChip()}
   </header>`;
 }
+
+/**
+ * Top-right identity chip. The site owner gets a list of every account and can
+ * open one; while they are in someone else's account it stays visible so they
+ * can hop back.
+ */
+function accountChip() {
+  const u = state.user;
+  const owner = u.isAdmin || u.actingAs;
+  if (!owner) {
+    return `<div class="acct-chip" style="margin-left:auto">
+      ${avatar(u.username)}<span class="acct-name">${esc(u.username)}</span></div>`;
+  }
+
+  return `
+  <div class="acct-wrap" style="margin-left:auto">
+    <button class="acct-chip ${u.actingAs ? 'acting' : ''}" data-act="modal" data-name="accounts">
+      ${avatar(u.username)}
+      <span class="acct-text">
+        <span class="acct-name">${esc(u.username)}</span>
+        ${u.actingAs ? '<span class="acct-sub">signed in as</span>' : '<span class="acct-sub">owner</span>'}
+      </span>
+      ${icon('chevron', { size: 14 })}
+    </button>
+  </div>`;
+}
+
+/** Every account on the site, with a one-tap way into each. */
+function accountsModal() {
+  const list = state.adminUsers;
+  if (!list) { loadAdminUsers(); return '<p class="muted">Loading accounts…</p>'; }
+
+  return `
+  <h2>Accounts</h2>
+  <p class="muted" style="margin-bottom:14px">
+    Everyone who has signed up. Open an account to fix their sheet while they are offline.
+  </p>
+
+  ${state.user.actingAs ? `
+    <button class="btn primary wide" style="margin-bottom:14px" data-act="admin-return">
+      ${icon('refresh', { size: 15 })} Back to my own account</button>` : ''}
+
+  <div class="stack">
+    ${list.map((a) => {
+      const isMe = a.id === state.user.id;
+      return `
+      <div class="card spread" style="padding:11px">
+        <div class="row" style="flex-wrap:nowrap">
+          ${avatar(a.username)}
+          <div>
+            <div style="font-weight:650;font-size:14px">${esc(a.username)}
+              ${a.isAdmin ? '<span class="tag gold" style="margin-left:4px">owner</span>' : ''}
+              ${isMe ? '<span class="tag" style="margin-left:4px">you</span>' : ''}</div>
+            <div class="tiny">${esc(a.email)} · ${a.campaigns} campaign${a.campaigns === 1 ? '' : 's'}</div>
+          </div>
+        </div>
+        ${isMe ? '' : `<button class="btn sm primary" data-act="admin-switch" data-id="${a.id}">
+          ${icon('arrowRight', { size: 13 })} Open</button>`}
+      </div>`;
+    }).join('')}
+  </div>
+
+  <button class="btn wide" style="margin-top:14px" data-act="close-modal">Done</button>`;
+}
+
+async function loadAdminUsers() {
+  try {
+    const { users } = await api('GET', '/api/admin/users');
+    state.adminUsers = users;
+    render();
+  } catch (err) { fail(err); }
+}
+
+on('admin-switch', async (el) => {
+  const { user } = await api('POST', `/api/admin/switch/${el.dataset.id}`);
+  state.modal = null;
+  state.adminUsers = null;
+  toast(`Signed in as ${user.username}`);
+  location.reload(); // reload cleanly as the other account
+});
+
+on('admin-return', async () => {
+  await api('POST', '/api/admin/return');
+  state.modal = null;
+  state.adminUsers = null;
+  location.reload();
+});
 
 // ================================================================= pages
 
@@ -2350,6 +2438,7 @@ function modalBody(name) {
     case 'new-char': return charFormModal(null);
     case 'edit-char': return charFormModal(state.characters.find((c) => c.id === state.modal.id));
     case 'new-item': return itemModal();
+    case 'accounts': return accountsModal();
     case 'lib-item': return libItemModal(state.library.find((i) => i.id === state.modal.id));
     case 'lib-give': return libGiveModal(state.library.find((i) => i.id === state.modal.id));
     case 'new-note': return noteModal(null);

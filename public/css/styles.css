@@ -1148,3 +1148,30 @@ td { padding: 13px 16px; border-top: 1px solid var(--line-soft); font-size: 14px
 .lib-tag-pick span { color: var(--tint); }
 .lib-tag-pick:has(input:checked) { background: var(--tint); border-color: var(--tint); }
 .lib-tag-pick:has(input:checked) span { color: #fff; }
+
+/* ---------------------------------------------------------------- account chip */
+
+.acct-wrap { flex-shrink: 0; }
+.acct-chip {
+  display: flex; align-items: center; gap: 9px;
+  padding: 5px 12px 5px 5px;
+  border: 1px solid var(--line); border-radius: 999px;
+  background: var(--panel); color: var(--ink);
+  cursor: pointer; white-space: nowrap;
+}
+button.acct-chip:hover { border-color: var(--accent); }
+.acct-chip.acting {
+  border-color: var(--gold); background: var(--gold-soft);
+}
+.acct-text { display: flex; flex-direction: column; line-height: 1.15; text-align: left; }
+.acct-name { font-size: 13.5px; font-weight: 650; }
+.acct-sub {
+  font-size: 10px; letter-spacing: .6px; text-transform: uppercase;
+  color: var(--ink-3);
+}
+.acct-chip.acting .acct-sub { color: var(--gold-ink); }
+
+@media (max-width: 860px) {
+  .acct-text { display: none; }
+  .acct-chip { padding: 4px; }
+}

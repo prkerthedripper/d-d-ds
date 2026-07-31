@@ -261,6 +261,18 @@ export async function migrate() {
   await run(`UPDATE characters SET attacks_per_turn = 1 WHERE attacks_per_turn IS NULL`);
   await addColumn('combat', 'turn_started_at', 'BIGINT DEFAULT 0');
   await addColumn('items', 'effect', `TEXT DEFAULT ''`);
+  await addColumn('users', 'is_admin', 'INTEGER DEFAULT 0');
+
+  // The very first account to exist owns the site. On an existing database that
+  // means the earliest signup; on a fresh one the first person to register.
+  const admins = await get('SELECT COUNT(*) AS n FROM users WHERE is_admin = 1');
+  if (!Number(admins?.n)) {
+    const first = await get('SELECT id FROM users ORDER BY created_at LIMIT 1');
+    if (first) {
+      await run('UPDATE users SET is_admin = 1 WHERE id = ?', [first.id]);
+      console.log('[db] site owner set to the first registered account');
+    }
+  }
   await addColumn('enemy_presets', 'loot', `TEXT DEFAULT '[]'`);
   await run(`UPDATE enemy_presets SET loot = '[]' WHERE loot IS NULL`);
 
