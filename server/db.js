@@ -225,6 +225,17 @@ const SCHEMA = [
     kind TEXT DEFAULT 'chat',
     created_at BIGINT NOT NULL
   )`,
+  // DM-only AI generation history. Drafts live here until the DM explicitly
+  // saves one to the codex, library or journal.
+  `CREATE TABLE IF NOT EXISTS ai_generations (
+    id TEXT PRIMARY KEY,
+    campaign_id TEXT NOT NULL,
+    user_id TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    prompt TEXT NOT NULL,
+    result TEXT NOT NULL,
+    created_at BIGINT NOT NULL
+  )`,
   `CREATE TABLE IF NOT EXISTS combat (
     campaign_id TEXT PRIMARY KEY,
     active INTEGER DEFAULT 0,
@@ -233,6 +244,52 @@ const SCHEMA = [
     name TEXT DEFAULT 'Encounter',
     combatants TEXT NOT NULL,
     updated_at BIGINT NOT NULL
+  )`,
+  // A campaign can hold several world maps; one is the active/primary map.
+  `CREATE TABLE IF NOT EXISTS campaign_maps (
+    id TEXT PRIMARY KEY,
+    campaign_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    cols INTEGER DEFAULT 10,
+    rows INTEGER DEFAULT 8,
+    config TEXT NOT NULL DEFAULT '{}',
+    created_at BIGINT NOT NULL,
+    updated_at BIGINT NOT NULL
+  )`,
+  // Only hexes the DM has touched are stored. The rest of the grid renders as
+  // empty ground, so a new map starts clean instead of shipping sample data.
+  `CREATE TABLE IF NOT EXISTS map_tiles (
+    map_id TEXT NOT NULL,
+    q INTEGER NOT NULL,
+    r INTEGER NOT NULL,
+    color TEXT DEFAULT '',
+    terrain TEXT DEFAULT '',
+    elevation REAL DEFAULT 0,
+    label TEXT DEFAULT '',
+    icon TEXT DEFAULT '',
+    waypoint TEXT DEFAULT '',
+    category TEXT DEFAULT '',
+    description TEXT DEFAULT '',
+    image TEXT DEFAULT '',
+    entry_id TEXT DEFAULT '',
+    important INTEGER DEFAULT 0,
+    visible INTEGER DEFAULT 1,
+    dm_notes TEXT DEFAULT '',
+    players TEXT NOT NULL DEFAULT '[]',
+    npcs TEXT NOT NULL DEFAULT '[]',
+    created_at BIGINT NOT NULL,
+    updated_at BIGINT NOT NULL
+  )`,
+  `CREATE TABLE IF NOT EXISTS map_labels (
+    id TEXT PRIMARY KEY,
+    map_id TEXT NOT NULL,
+    text TEXT NOT NULL,
+    x REAL NOT NULL DEFAULT 0,
+    y REAL NOT NULL DEFAULT 0,
+    size INTEGER DEFAULT 18,
+    color TEXT DEFAULT '#e8e6f2',
+    visible INTEGER DEFAULT 1,
+    created_at BIGINT NOT NULL
   )`,
 ];
 
@@ -255,6 +312,7 @@ export async function migrate() {
   // Added after the first release — existing campaigns need it backfilled.
   await addColumn('characters', 'attacks', `TEXT DEFAULT '[]'`);
   await run(`UPDATE characters SET attacks = '[]' WHERE attacks IS NULL`);
+  await addColumn('characters', 'background', `TEXT DEFAULT ''`);
   await addColumn('characters', 'spell_ability', `TEXT DEFAULT 'wis'`);
   await run(`UPDATE characters SET spell_ability = 'wis' WHERE spell_ability IS NULL`);
   await addColumn('characters', 'attacks_per_turn', 'INTEGER DEFAULT 1');
@@ -262,6 +320,8 @@ export async function migrate() {
   await addColumn('combat', 'turn_started_at', 'BIGINT DEFAULT 0');
   await addColumn('items', 'effect', `TEXT DEFAULT ''`);
   await addColumn('users', 'is_admin', 'INTEGER DEFAULT 0');
+  await addColumn('map_tiles', 'elevation', 'REAL DEFAULT 0');
+  await run('UPDATE map_tiles SET elevation = 0 WHERE elevation IS NULL');
 
   // Who owns the site. OWNER_EMAIL wins and is re-applied on every boot, so the
   // owner can be moved by changing one setting. Without it, the earliest signup
@@ -298,6 +358,11 @@ export async function migrate() {
   await run(`CREATE INDEX IF NOT EXISTS idx_msg_campaign ON messages(campaign_id)`);
   await run(`CREATE INDEX IF NOT EXISTS idx_presets_campaign ON enemy_presets(campaign_id)`);
   await run(`CREATE INDEX IF NOT EXISTS idx_entries_campaign ON entries(campaign_id, kind)`);
+  await run(`CREATE INDEX IF NOT EXISTS idx_ai_campaign ON ai_generations(campaign_id, created_at)`);
   await run(`CREATE INDEX IF NOT EXISTS idx_library_campaign ON library_items(campaign_id)`);
+  await run(`CREATE UNIQUE INDEX IF NOT EXISTS idx_map_tiles_hex ON map_tiles(map_id, q, r)`);
+  await run(`CREATE INDEX IF NOT EXISTS idx_map_tiles_map ON map_tiles(map_id)`);
+  await run(`CREATE INDEX IF NOT EXISTS idx_map_labels_map ON map_labels(map_id)`);
+  await run(`CREATE INDEX IF NOT EXISTS idx_maps_campaign ON campaign_maps(campaign_id)`);
   console.log(`[db] ready (${usePg ? 'postgres' : 'sqlite'})`);
 }

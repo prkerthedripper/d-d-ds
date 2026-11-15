@@ -8,11 +8,21 @@ everyone on their own phone, everything synced instantly.
 - **Accounts** — email + password, no verification step
 - **Campaigns & invites** — the DM invites players by email; the invite is waiting
   when they sign in with that address
+- **Illustrated character creator** — a full-screen class, species and background
+  selection with large fantasy sourcebook plates, a class/species portrait picker
+  and custom portrait uploads. The fantasy art is separate from the modern Webster
+  campaign photography; art details are in `public/assets/art/rpg/CREDITS.md`
 - **Character sheets** — abilities, HP, AC, skills, conditions, spell slots, coins,
   and a **portrait** you upload from your phone (resized in the browser, so a 4 MB
   photo becomes ~40 KB before it is stored)
-- **Campaign Codex** — quests, NPCs, locations, shops and a session timeline, each
-  with its own picture. Anything the DM marks DM-only never reaches players
+- **Campaign Codex** — quests, NPCs, locations, shops, items and a session timeline,
+  each with its own picture. Anything the DM marks DM-only never reaches players
+- **AI Tools (DM only)** — a campaign-aware Oracle for improvising NPCs, local
+  employees, locations, items, encounters and secrets during play. It reads the
+  campaign’s existing people, places and notes, keeps invented facts separate from
+  canon, and presents every result as a draft. Nothing enters the campaign until
+  the DM saves it, and saves are DM-only unless explicitly shared. Results are
+  editable before saving, can be refined or expanded, and keep a generation history
 - **Shops you can actually buy from** — players spend their own gold, the coins come
   off their sheet and the item lands in their inventory, stacking if they already
   had one. Prices understand `50 gp`, `2 sp`, `10 cp`
@@ -57,6 +67,13 @@ everyone on their own phone, everything synced instantly.
   character's bag or a shop's stock. Library items also show up in the inventory
   "add from list" picker, and Chronica's `master_item_library` imports straight
   into it.
+- **World Atlas and infinite hex world** — the World page opens on a real
+  pan/zoom OpenStreetMap atlas. Zoom toward a place and it hands off to a
+  global 160 m hex lattice; the authored Webster/Ontario seed becomes editable
+  campaign data while everything outside it is generated as a frontier. Zoom
+  back out from the hex view to return to the atlas at the same coordinate.
+  The atlas is not a fixed rectangular campaign map: panning recenters a new
+  chunk of global hexes, and saved edits keep their world coordinates.
 - **Notes** — shared with the party, or DM-only
 - **Party chat**
 - **Import & backup** (Settings, DM only) — pull a whole campaign in from Chronica
@@ -110,6 +127,16 @@ if it bugs you on game night.
 | `JWT_SECRET`   | production       | Signs login sessions. Render generates one for you.      |
 | `PORT`         | no               | Defaults to 3000.                                        |
 | `NODE_ENV`     | production       | Set to `production` when deployed.                       |
+| `ATLAS_TILE_URL` | no             | Raster tile template for the World Atlas, using `{z}`, `{x}`, `{y}`. Defaults to OpenStreetMap. |
+| `ATLAS_USER_AGENT` | no            | Descriptive User-Agent for the atlas tile proxy. Keep it set when deploying. |
+| `NVIDIA_API_KEY` | for AI Tools | Server-side NVIDIA NIM key used by the DM-only Oracle. Never expose this in the browser. |
+| `NVIDIA_API_BASE` | no | OpenAI-compatible API base. Defaults to `https://integrate.api.nvidia.com/v1`. |
+| `NVIDIA_MODEL` | no | Model name. Defaults to `minimaxai/minimax-m3.1-flash`. |
+
+Atlas map data is © OpenStreetMap contributors and is available under the
+Open Database License (ODbL). The app proxies tiles through `/api/atlas/tile/*`
+and includes the required attribution in the map UI. The Webster/Ontario seed
+is derived from OSM and documented in `public/assets/earth/CREDITS.md`.
 
 ## Layout
 
@@ -125,5 +152,22 @@ public/
   js/core.js   state, API client, socket, render loop
   js/views.js  every page and modal
   js/icons.js  the inline SVG icon set (no CDN, works offline)
+  js/earth.js  NASA Blue Marble globe and globe-to-world transition
+  js/atlas.js  world slippy map and street-level handoff
+  js/world.js  infinite hex camera, world generation and DM editor
   js/app.js    boot
+  tiles.js     same-origin cached atlas tile proxy
+  region.js    Webster/Ontario seed and global hex projection
 ```
+
+## Character artwork
+
+The character creator uses an original generated fantasy plate set stored in
+`public/assets/art/rpg/`: 13 class illustrations, 14 species portraits and 10
+background scenes. The images are bundled locally—the running app does not call
+the image service. Exact prompts, seeds, generation notes and licensing caveats
+are in `public/assets/art/rpg/CREDITS.md` and `rpg/generation.json`.
+
+The modern-Webster world, party and codex screens continue to use the separately
+credited local photography. The fantasy creator does not borrow photographs or
+official D&D artwork for its class, species or background plates.

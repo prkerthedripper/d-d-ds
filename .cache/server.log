@@ -1,0 +1,6 @@
+
+> dnd-ds@1.0.0 start
+> node server/index.js
+
+[db] ready (sqlite)
+D&D DS running on http://localhost:3000

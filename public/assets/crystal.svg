@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
+  <defs>
+    <linearGradient id="c" x1="18" y1="8" x2="46" y2="58" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#e6e1ff"/><stop offset=".45" stop-color="#a394ff"/><stop offset="1" stop-color="#5a45c9"/>
+    </linearGradient>
+    <linearGradient id="d" x1="32" y1="14" x2="32" y2="52" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#b7a9ff" stop-opacity=".95"/><stop offset="1" stop-color="#4a37a8" stop-opacity=".9"/>
+    </linearGradient>
+    <radialGradient id="g" cx="0" cy="0" r="1" gradientTransform="translate(32 32) rotate(90) scale(30)">
+      <stop stop-color="#8d7bff" stop-opacity=".55"/><stop offset="1" stop-color="#8d7bff" stop-opacity="0"/>
+    </radialGradient>
+  </defs>
+  <circle cx="32" cy="32" r="30" fill="url(#g)"/>
+  <path d="M32 5 47 22 40 51 32 60 24 51 17 22Z" fill="url(#c)" stroke="#ded7ff" stroke-opacity=".55" stroke-width="1.1"/>
+  <path d="M32 5 32 60M17 22l15 11 15-11" stroke="#241a5e" stroke-opacity=".55" stroke-width="1.2"/>
+  <path d="M32 33 40 51 32 60 24 51Z" fill="url(#d)"/>
+  <path d="M32 16l8 22-8 9-8-9Z" fill="#fff" fill-opacity=".14"/>
+</svg>

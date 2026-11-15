@@ -1,0 +1,24 @@
+{
+  "collection": "D&D DS — modern supernatural art set and illustrated fantasy character plates",
+  "sourcing": ["openverse.org", "commons.wikimedia.org", "rawpixel.com", "pollinations.ai"],
+  "notes": "Campaign backgrounds, items and powers are CC0/Public Domain photography. Character class, species and background plates are original AI-generated fantasy illustrations; see rpg/CREDITS.md and rpg/generation.json.",
+  "assets": {
+    "rpg": {
+      "license": "AI-generated; review Pollinations and FLUX terms before commercial redistribution",
+      "credit": "Generated for D&D DS via Pollinations/FLUX",
+      "files": "classes/, species/, backgrounds/ — see generation.json"
+    },
+    "backgrounds": {
+      "license": "CC0 / Public Domain Mark",
+      "files": ["city-night.jpg", "skyline-dusk.jpg", "highway-night.jpg", "suburb.jpg", "school.jpg", "hospital.jpg", "abandoned.jpg", "archive.jpg", "street-night.jpg", "storm.jpg", "underground.jpg", "apartment.jpg", "forest.jpg", "parking.jpg"]
+    },
+    "items": {
+      "license": "CC0 / Public Domain",
+      "files": ["knife.jpg", "pistol.jpg", "vest.jpg", "jacket.jpg", "helmet.jpg", "ring.jpg", "pendant.jpg", "notebook.jpg", "map.jpg", "medkit.jpg", "crystal.jpg", "gloves.jpg", "flashlight.jpg", "phone.jpg", "laptop.jpg", "backpack.jpg", "keys.jpg", "camera.jpg", "tools.jpg", "radio.jpg"]
+    },
+    "powers": {
+      "license": "CC0 / Public Domain",
+      "files": ["barrier.jpg", "summoning.jpg", "perception.jpg", "influence.jpg", "energy.jpg", "combustion.jpg", "entropy.jpg", "matter.jpg", "restoration.jpg"]
+    }
+  }
+}

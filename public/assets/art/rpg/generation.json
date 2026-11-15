@@ -1,0 +1,298 @@
+{
+  "collection": "D&D DS — fantasy RPG character plates",
+  "generatedAt": "2026-11-10T22:56:00.618Z",
+  "service": "Pollinations image API",
+  "model": "FLUX",
+  "parameters": {
+    "nologo": true,
+    "enhance": false,
+    "style": "premium fantasy RPG sourcebook illustration, painterly digital oil painting, cinematic volumetric lighting, rich material detail, strong readable silhouette, muted earthy palette with antique gold and subtle arcane violet accents, dark atmospheric background, professional concept art, no text, no watermark, no logo, no border, no UI, no collage"
+  },
+  "note": "Generated fantasy illustrations, locally bundled. The service mark is cropped from the bottom edge. No third-party character artwork was copied.",
+  "assets": [
+    {
+      "kind": "classes",
+      "key": "artificer",
+      "file": "classes/artificer.webp",
+      "seed": 24100,
+      "prompt": "Full-body vertical character illustration of a arcane engineer with visible face, brass goggles pushed up on forehead, large mechanical prosthetic arm with exposed gears, glowing wrench, leather apron, tool belt, workshop, no staff, full figure from head to boots. premium fantasy RPG sourcebook illustration, painterly digital oil painting, cinematic volumetric lighting, rich material detail, strong readable silhouette, muted earthy palette with antique gold and subtle arcane violet accents, dark atmospheric background, professional concept art, no text, no watermark, no logo, no border, no UI, no collage.",
+      "regenerated": true
+    },
+    {
+      "kind": "classes",
+      "key": "barbarian",
+      "file": "classes/barbarian.webp",
+      "seed": 4101,
+      "prompt": "Full-body vertical character illustration of a powerful warrior, rugged fur and leather armour, greataxe, war paint, fierce expression, muscular build. premium fantasy RPG sourcebook illustration, painterly digital oil painting, cinematic volumetric lighting, rich material detail, strong readable silhouette, muted earthy palette with antique gold and subtle arcane violet accents, dark atmospheric background, professional concept art, no text, no watermark, no logo, no border, no UI, no collage."
+    },
+    {
+      "kind": "classes",
+      "key": "bard",
+      "file": "classes/bard.webp",
+      "seed": 4102,
+      "prompt": "Full-body vertical character illustration of a charismatic travelling bard, stylish embroidered doublet, lute, rapier, expressive confident pose. premium fantasy RPG sourcebook illustration, painterly digital oil painting, cinematic volumetric lighting, rich material detail, strong readable silhouette, muted earthy palette with antique gold and subtle arcane violet accents, dark atmospheric background, professional concept art, no text, no watermark, no logo, no border, no UI, no collage."
+    },
+    {
+      "kind": "classes",
+      "key": "cleric",
+      "file": "classes/cleric.webp",
+      "seed": 4103,
+      "prompt": "Full-body vertical character illustration of a armoured healer-priest, ceremonial mail, mace, shield with a holy symbol, divine golden light. premium fantasy RPG sourcebook illustration, painterly digital oil painting, cinematic volumetric lighting, rich material detail, strong readable silhouette, muted earthy palette with antique gold and subtle arcane violet accents, dark atmospheric background, professional concept art, no text, no watermark, no logo, no border, no UI, no collage."
+    },
+    {
+      "kind": "classes",
+      "key": "druid",
+      "file": "classes/druid.webp",
+      "seed": 4104,
+      "prompt": "Full-body vertical character illustration of a nature guardian, layered earth-toned robes, antler circlet, living wooden staff, leaves and animal motifs. premium fantasy RPG sourcebook illustration, painterly digital oil painting, cinematic volumetric lighting, rich material detail, strong readable silhouette, muted earthy palette with antique gold and subtle arcane violet accents, dark atmospheric background, professional concept art, no text, no watermark, no logo, no border, no UI, no collage."
+    },
+    {
+      "kind": "classes",
+      "key": "fighter",
+      "file": "classes/fighter.webp",
+      "seed": 14105,
+      "prompt": "Full-body vertical character illustration of a disciplined veteran with visible head and face, detailed steel half-plate, longsword and kite shield, grounded heroic stance, entire figure from head to boots, no helmet. premium fantasy RPG sourcebook illustration, painterly digital oil painting, cinematic volumetric lighting, rich material detail, strong readable silhouette, muted earthy palette with antique gold and subtle arcane violet accents, dark atmospheric background, professional concept art, no text, no watermark, no logo, no border, no UI, no collage.",
+      "regenerated": true
+    },
+    {
+      "kind": "classes",
+      "key": "monk",
+      "file": "classes/monk.webp",
+      "seed": 14106,
+      "prompt": "Full-body vertical character illustration of a martial artist with visible face, practical wrapped robes, wrapped fists, quarterstaff, dynamic balanced fighting stance, full figure from head to boots. premium fantasy RPG sourcebook illustration, painterly digital oil painting, cinematic volumetric lighting, rich material detail, strong readable silhouette, muted earthy palette with antique gold and subtle arcane violet accents, dark atmospheric background, professional concept art, no text, no watermark, no logo, no border, no UI, no collage.",
+      "regenerated": true
+    },
+    {
+      "kind": "classes",
+      "key": "paladin",
+      "file": "classes/paladin.webp",
+      "seed": 4107,
+      "prompt": "Full-body vertical character illustration of a commanding holy knight, ornate plate armour, greatsword and shield, radiant gold trim, oathbound presence. premium fantasy RPG sourcebook illustration, painterly digital oil painting, cinematic volumetric lighting, rich material detail, strong readable silhouette, muted earthy palette with antique gold and subtle arcane violet accents, dark atmospheric background, professional concept art, no text, no watermark, no logo, no border, no UI, no collage."
+    },
+    {
+      "kind": "classes",
+      "key": "ranger",
+      "file": "classes/ranger.webp",
+      "seed": 14108,
+      "prompt": "Full-body vertical character illustration of a wilderness hunter with visible face and no hood, green cloak, leather armour, longbow held ready, quiver of arrows, forest ambush stance, full figure from head to boots. premium fantasy RPG sourcebook illustration, painterly digital oil painting, cinematic volumetric lighting, rich material detail, strong readable silhouette, muted earthy palette with antique gold and subtle arcane violet accents, dark atmospheric background, professional concept art, no text, no watermark, no logo, no border, no UI, no collage.",
+      "regenerated": true
+    },
+    {
+      "kind": "classes",
+      "key": "rogue",
+      "file": "classes/rogue.webp",
+      "seed": 44109,
+      "prompt": "Full-body vertical character illustration of a roguish dagger duelist, young man with short auburn hair and a fully visible face, no head covering, open-necked deep burgundy leather jerkin, two drawn daggers, standing in a sunlit stone market, warm golden daylight, full colour, detailed expressive face, full figure from head to boots. premium fantasy RPG sourcebook illustration, painterly digital oil painting, cinematic volumetric lighting, rich material detail, strong readable silhouette, muted earthy palette with antique gold and subtle arcane violet accents, dark atmospheric background, professional concept art, no text, no watermark, no logo, no border, no UI, no collage.",
+      "regenerated": true
+    },
+    {
+      "kind": "classes",
+      "key": "sorcerer",
+      "file": "classes/sorcerer.webp",
+      "seed": 14110,
+      "prompt": "Full-body vertical character illustration of a innate spellcaster with visible face, elegant travel clothes, hands wreathed in wild lightning and fire, no staff, no spellbook, full figure from head to boots, dramatic raw magic. premium fantasy RPG sourcebook illustration, painterly digital oil painting, cinematic volumetric lighting, rich material detail, strong readable silhouette, muted earthy palette with antique gold and subtle arcane violet accents, dark atmospheric background, professional concept art, no text, no watermark, no logo, no border, no UI, no collage.",
+      "regenerated": true
+    },
+    {
+      "kind": "classes",
+      "key": "warlock",
+      "file": "classes/warlock.webp",
+      "seed": 4111,
+      "prompt": "Full-body vertical character illustration of a mysterious pact-bound spellcaster, dark layered robes, strange amulet, eldritch shadow and violet flame. premium fantasy RPG sourcebook illustration, painterly digital oil painting, cinematic volumetric lighting, rich material detail, strong readable silhouette, muted earthy palette with antique gold and subtle arcane violet accents, dark atmospheric background, professional concept art, no text, no watermark, no logo, no border, no UI, no collage."
+    },
+    {
+      "kind": "classes",
+      "key": "wizard",
+      "file": "classes/wizard.webp",
+      "seed": 4112,
+      "prompt": "Full-body vertical character illustration of a learned spellcaster, deep blue robes, spellbook, staff, floating arcane sigils, scholarly bearing. premium fantasy RPG sourcebook illustration, painterly digital oil painting, cinematic volumetric lighting, rich material detail, strong readable silhouette, muted earthy palette with antique gold and subtle arcane violet accents, dark atmospheric background, professional concept art, no text, no watermark, no logo, no border, no UI, no collage."
+    },
+    {
+      "kind": "species",
+      "key": "human",
+      "file": "species/human.webp",
+      "seed": 5200,
+      "prompt": "Head-and-shoulders character portrait of a adaptable human traveller with ordinary rounded ears, determined expression, practical weathered clothing, unmistakably human. Neutral traveller clothing, no class-specific weapons, face and species features clearly visible. premium fantasy RPG sourcebook illustration, painterly digital oil painting, cinematic volumetric lighting, rich material detail, strong readable silhouette, muted earthy palette with antique gold and subtle arcane violet accents, dark atmospheric background, professional concept art, no text, no watermark, no logo, no border, no UI, no collage."
+    },
+    {
+      "kind": "species",
+      "key": "elf",
+      "file": "species/elf.webp",
+      "seed": 5201,
+      "prompt": "Head-and-shoulders character portrait of a unmistakably elven traveller with very long pointed ears, sharp cheekbones, tall slender build, elegant embroidered cloak. Neutral traveller clothing, no class-specific weapons, face and species features clearly visible. premium fantasy RPG sourcebook illustration, painterly digital oil painting, cinematic volumetric lighting, rich material detail, strong readable silhouette, muted earthy palette with antique gold and subtle arcane violet accents, dark atmospheric background, professional concept art, no text, no watermark, no logo, no border, no UI, no collage."
+    },
+    {
+      "kind": "species",
+      "key": "half-elf",
+      "file": "species/half-elf.webp",
+      "seed": 5202,
+      "prompt": "Head-and-shoulders character portrait of a unmistakably half-elven traveller with subtly pointed ears, blended human and elven features, practical cloak. Neutral traveller clothing, no class-specific weapons, face and species features clearly visible. premium fantasy RPG sourcebook illustration, painterly digital oil painting, cinematic volumetric lighting, rich material detail, strong readable silhouette, muted earthy palette with antique gold and subtle arcane violet accents, dark atmospheric background, professional concept art, no text, no watermark, no logo, no border, no UI, no collage."
+    },
+    {
+      "kind": "species",
+      "key": "dwarf",
+      "file": "species/dwarf.webp",
+      "seed": 15203,
+      "prompt": "Head-and-shoulders character portrait of a unmistakably dwarven traveller, short broad powerful build, very thick braided auburn beard with iron rings, large nose, heavy brow, pointed ears, runed leather and iron, clearly non-human. Neutral traveller clothing, no class-specific weapons, face and species features clearly visible. premium fantasy RPG sourcebook illustration, painterly digital oil painting, cinematic volumetric lighting, rich material detail, strong readable silhouette, muted earthy palette with antique gold and subtle arcane violet accents, dark atmospheric background, professional concept art, no text, no watermark, no logo, no border, no UI, no collage.",
+      "regenerated": true
+    },
+    {
+      "kind": "species",
+      "key": "halfling",
+      "file": "species/halfling.webp",
+      "seed": 25204,
+      "prompt": "Head-and-shoulders character portrait of a unmistakably halfling traveller, mature adult with small stature, round friendly face, very large pointed ears, curly sideburns, waistcoat and traveller cloak, clearly not a human child. Neutral traveller clothing, no class-specific weapons, face and species features clearly visible. premium fantasy RPG sourcebook illustration, painterly digital oil painting, cinematic volumetric lighting, rich material detail, strong readable silhouette, muted earthy palette with antique gold and subtle arcane violet accents, dark atmospheric background, professional concept art, no text, no watermark, no logo, no border, no UI, no collage.",
+      "regenerated": true
+    },
+    {
+      "kind": "species",
+      "key": "dragonborn",
+      "file": "species/dragonborn.webp",
+      "seed": 5205,
+      "prompt": "Head-and-shoulders character portrait of a unmistakably dragonborn traveller, reptilian scaled skin, dragon snout, horned draconic head, no hair, elemental-coloured eyes, proud bearing. Neutral traveller clothing, no class-specific weapons, face and species features clearly visible. premium fantasy RPG sourcebook illustration, painterly digital oil painting, cinematic volumetric lighting, rich material detail, strong readable silhouette, muted earthy palette with antique gold and subtle arcane violet accents, dark atmospheric background, professional concept art, no text, no watermark, no logo, no border, no UI, no collage."
+    },
+    {
+      "kind": "species",
+      "key": "gnome",
+      "file": "species/gnome.webp",
+      "seed": 5206,
+      "prompt": "Head-and-shoulders character portrait of a unmistakably gnome traveller, tiny stature, oversized head, large ears, large curious eyes, wild hair, inventor goggles, colourful layered clothes. Neutral traveller clothing, no class-specific weapons, face and species features clearly visible. premium fantasy RPG sourcebook illustration, painterly digital oil painting, cinematic volumetric lighting, rich material detail, strong readable silhouette, muted earthy palette with antique gold and subtle arcane violet accents, dark atmospheric background, professional concept art, no text, no watermark, no logo, no border, no UI, no collage."
+    },
+    {
+      "kind": "species",
+      "key": "half-orc",
+      "file": "species/half-orc.webp",
+      "seed": 5207,
+      "prompt": "Head-and-shoulders character portrait of a unmistakably half-orc traveller, broad powerful build, green-grey skin, pronounced lower tusks, broad jaw, pointed ears, practical armour. Neutral traveller clothing, no class-specific weapons, face and species features clearly visible. premium fantasy RPG sourcebook illustration, painterly digital oil painting, cinematic volumetric lighting, rich material detail, strong readable silhouette, muted earthy palette with antique gold and subtle arcane violet accents, dark atmospheric background, professional concept art, no text, no watermark, no logo, no border, no UI, no collage."
+    },
+    {
+      "kind": "species",
+      "key": "tiefling",
+      "file": "species/tiefling.webp",
+      "seed": 5208,
+      "prompt": "Head-and-shoulders character portrait of a unmistakably tiefling traveller, deep red skin, large curved black horns, golden infernal eyes, long tail, dark hair, elegant infernal heritage. Neutral traveller clothing, no class-specific weapons, face and species features clearly visible. premium fantasy RPG sourcebook illustration, painterly digital oil painting, cinematic volumetric lighting, rich material detail, strong readable silhouette, muted earthy palette with antique gold and subtle arcane violet accents, dark atmospheric background, professional concept art, no text, no watermark, no logo, no border, no UI, no collage."
+    },
+    {
+      "kind": "species",
+      "key": "aasimar",
+      "file": "species/aasimar.webp",
+      "seed": 5209,
+      "prompt": "Head-and-shoulders character portrait of a unmistakably aasimar traveller, celestial features, softly glowing golden eyes, faint luminous halo, silver hair, serene expression. Neutral traveller clothing, no class-specific weapons, face and species features clearly visible. premium fantasy RPG sourcebook illustration, painterly digital oil painting, cinematic volumetric lighting, rich material detail, strong readable silhouette, muted earthy palette with antique gold and subtle arcane violet accents, dark atmospheric background, professional concept art, no text, no watermark, no logo, no border, no UI, no collage."
+    },
+    {
+      "kind": "species",
+      "key": "goliath",
+      "file": "species/goliath.webp",
+      "seed": 15210,
+      "prompt": "Head-and-shoulders character portrait of a unmistakably goliath traveller, seven-foot towering muscular build, grey-blue skin, dark geometric mountain markings across face and arms, completely hairless head, no beard, pointed ears, tribal leathers. Neutral traveller clothing, no class-specific weapons, face and species features clearly visible. premium fantasy RPG sourcebook illustration, painterly digital oil painting, cinematic volumetric lighting, rich material detail, strong readable silhouette, muted earthy palette with antique gold and subtle arcane violet accents, dark atmospheric background, professional concept art, no text, no watermark, no logo, no border, no UI, no collage.",
+      "regenerated": true
+    },
+    {
+      "kind": "species",
+      "key": "firbolg",
+      "file": "species/firbolg.webp",
+      "seed": 5211,
+      "prompt": "Head-and-shoulders character portrait of a unmistakably firbolg traveller, eight-foot tall broad build, blue-grey skin, broad bovine nose, pointed ears, mossy earth-toned robes, forest guardian. Neutral traveller clothing, no class-specific weapons, face and species features clearly visible. premium fantasy RPG sourcebook illustration, painterly digital oil painting, cinematic volumetric lighting, rich material detail, strong readable silhouette, muted earthy palette with antique gold and subtle arcane violet accents, dark atmospheric background, professional concept art, no text, no watermark, no logo, no border, no UI, no collage."
+    },
+    {
+      "kind": "species",
+      "key": "tabaxi",
+      "file": "species/tabaxi.webp",
+      "seed": 15212,
+      "prompt": "Head-and-shoulders character portrait of a unmistakably tabaxi traveller, anthropomorphic feline humanoid with upright human shoulders and body, feline face, spotted fur, cat ears, slit pupils, whiskers, leather armour, agile posture. Neutral traveller clothing, no class-specific weapons, face and species features clearly visible. premium fantasy RPG sourcebook illustration, painterly digital oil painting, cinematic volumetric lighting, rich material detail, strong readable silhouette, muted earthy palette with antique gold and subtle arcane violet accents, dark atmospheric background, professional concept art, no text, no watermark, no logo, no border, no UI, no collage.",
+      "regenerated": true
+    },
+    {
+      "kind": "species",
+      "key": "genasi",
+      "file": "species/genasi.webp",
+      "seed": 5213,
+      "prompt": "Head-and-shoulders character portrait of a unmistakably genasi traveller, elemental lineage, blue skin, glowing elemental markings, wind-touched hair, elemental jewellery. Neutral traveller clothing, no class-specific weapons, face and species features clearly visible. premium fantasy RPG sourcebook illustration, painterly digital oil painting, cinematic volumetric lighting, rich material detail, strong readable silhouette, muted earthy palette with antique gold and subtle arcane violet accents, dark atmospheric background, professional concept art, no text, no watermark, no logo, no border, no UI, no collage."
+    },
+    {
+      "kind": "backgrounds",
+      "key": "soldier",
+      "file": "backgrounds/soldier.webp",
+      "seed": 7300,
+      "prompt": "Wide cinematic environment concept art of a fortress barracks and training yard, racked spears, worn banners, disciplined military life. No characters, no people. premium fantasy RPG sourcebook illustration, painterly digital oil painting, cinematic volumetric lighting, rich material detail, strong readable silhouette, muted earthy palette with antique gold and subtle arcane violet accents, dark atmospheric background, professional concept art, no text, no watermark, no logo, no border, no UI, no collage."
+    },
+    {
+      "kind": "backgrounds",
+      "key": "criminal",
+      "file": "backgrounds/criminal.webp",
+      "seed": 7301,
+      "prompt": "Wide cinematic environment concept art of a rain-soaked thieves quarter at night, narrow alleys, shuttered windows, secret doors, lantern light. No characters, no people. premium fantasy RPG sourcebook illustration, painterly digital oil painting, cinematic volumetric lighting, rich material detail, strong readable silhouette, muted earthy palette with antique gold and subtle arcane violet accents, dark atmospheric background, professional concept art, no text, no watermark, no logo, no border, no UI, no collage."
+    },
+    {
+      "kind": "backgrounds",
+      "key": "noble",
+      "file": "backgrounds/noble.webp",
+      "seed": 7302,
+      "prompt": "Wide cinematic environment concept art of a grand manor hall, carved stone, velvet banners, tall windows, gilded furniture, old family portraits. No characters, no people. premium fantasy RPG sourcebook illustration, painterly digital oil painting, cinematic volumetric lighting, rich material detail, strong readable silhouette, muted earthy palette with antique gold and subtle arcane violet accents, dark atmospheric background, professional concept art, no text, no watermark, no logo, no border, no UI, no collage."
+    },
+    {
+      "kind": "backgrounds",
+      "key": "sage",
+      "file": "backgrounds/sage.webp",
+      "seed": 7303,
+      "prompt": "Wide cinematic environment concept art of a ancient candlelit library, towering bookshelves, star charts, open tomes, brass instruments. No characters, no people. premium fantasy RPG sourcebook illustration, painterly digital oil painting, cinematic volumetric lighting, rich material detail, strong readable silhouette, muted earthy palette with antique gold and subtle arcane violet accents, dark atmospheric background, professional concept art, no text, no watermark, no logo, no border, no UI, no collage."
+    },
+    {
+      "kind": "backgrounds",
+      "key": "entertainer",
+      "file": "backgrounds/entertainer.webp",
+      "seed": 7304,
+      "prompt": "Wide cinematic environment concept art of a travelling theatre camp at dusk, painted wagon, stage lanterns, instruments, velvet curtains. No characters, no people. premium fantasy RPG sourcebook illustration, painterly digital oil painting, cinematic volumetric lighting, rich material detail, strong readable silhouette, muted earthy palette with antique gold and subtle arcane violet accents, dark atmospheric background, professional concept art, no text, no watermark, no logo, no border, no UI, no collage."
+    },
+    {
+      "kind": "backgrounds",
+      "key": "outlander",
+      "file": "backgrounds/outlander.webp",
+      "seed": 7305,
+      "prompt": "Wide cinematic environment concept art of a wild mountain pass at dawn, pine forest, distant campfire, weathered map and survival gear. No characters, no people. premium fantasy RPG sourcebook illustration, painterly digital oil painting, cinematic volumetric lighting, rich material detail, strong readable silhouette, muted earthy palette with antique gold and subtle arcane violet accents, dark atmospheric background, professional concept art, no text, no watermark, no logo, no border, no UI, no collage."
+    },
+    {
+      "kind": "backgrounds",
+      "key": "acolyte",
+      "file": "backgrounds/acolyte.webp",
+      "seed": 7306,
+      "prompt": "Wide cinematic environment concept art of a quiet stone temple, stained glass, rows of candles, incense smoke, sacred symbols. No characters, no people. premium fantasy RPG sourcebook illustration, painterly digital oil painting, cinematic volumetric lighting, rich material detail, strong readable silhouette, muted earthy palette with antique gold and subtle arcane violet accents, dark atmospheric background, professional concept art, no text, no watermark, no logo, no border, no UI, no collage."
+    },
+    {
+      "kind": "backgrounds",
+      "key": "artisan",
+      "file": "backgrounds/artisan.webp",
+      "seed": 7307,
+      "prompt": "Wide cinematic environment concept art of a medieval craft workshop, toolbench, half-finished armour, wood shavings, warm forge light. No characters, no people. premium fantasy RPG sourcebook illustration, painterly digital oil painting, cinematic volumetric lighting, rich material detail, strong readable silhouette, muted earthy palette with antique gold and subtle arcane violet accents, dark atmospheric background, professional concept art, no text, no watermark, no logo, no border, no UI, no collage."
+    },
+    {
+      "kind": "backgrounds",
+      "key": "folk-hero",
+      "file": "backgrounds/folk-hero.webp",
+      "seed": 7308,
+      "prompt": "Wide cinematic environment concept art of a humble village square, market stalls, hand-painted banners, well-worn cobblestones, hopeful morning light. No characters, no people. premium fantasy RPG sourcebook illustration, painterly digital oil painting, cinematic volumetric lighting, rich material detail, strong readable silhouette, muted earthy palette with antique gold and subtle arcane violet accents, dark atmospheric background, professional concept art, no text, no watermark, no logo, no border, no UI, no collage."
+    },
+    {
+      "kind": "backgrounds",
+      "key": "hermit",
+      "file": "backgrounds/hermit.webp",
+      "seed": 7309,
+      "prompt": "Wide cinematic environment concept art of a remote hillside cave shrine, wind-bent trees, simple cot, old journals, shafts of pale light. No characters, no people. premium fantasy RPG sourcebook illustration, painterly digital oil painting, cinematic volumetric lighting, rich material detail, strong readable silhouette, muted earthy palette with antique gold and subtle arcane violet accents, dark atmospheric background, professional concept art, no text, no watermark, no logo, no border, no UI, no collage."
+    }
+  ],
+  "regeneration": {
+    "files": [
+      "classes/artificer.webp",
+      "classes/fighter.webp",
+      "classes/monk.webp",
+      "classes/ranger.webp",
+      "classes/rogue.webp",
+      "classes/sorcerer.webp",
+      "species/dwarf.webp",
+      "species/goliath.webp",
+      "species/halfling.webp",
+      "species/tabaxi.webp"
+    ],
+    "seedNote": "These ten plates were re-rendered one or more times to clarify class equipment, faces and species features. The final effective seed for each is recorded above."
+  }
+}

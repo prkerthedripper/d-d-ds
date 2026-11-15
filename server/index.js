@@ -1,3 +1,4 @@
+import './env.js';
 import http from 'node:http';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -18,6 +19,13 @@ import {
   SPELL_EFFECTS, COMBAT_ACTIONS, CONDITION_LOOK, ITEM_CATALOG,
 } from './srd.js';
 import { planImport, summarize } from './importer.js';
+import { REGION, regionalSeed, worldSeed } from './region.js';
+import { searchGeo } from './geo.js';
+import { atlasTile } from './tiles.js';
+import {
+  AI_KINDS, AI_ACTIONS, aiStatus, generateCampaignContent, normaliseResult,
+  formatEntryBody, makeRateLimiter, newGenerationId,
+} from './ai.js';
 
 const str = (v) => (v == null ? '' : String(v)).trim();
 
@@ -142,6 +150,7 @@ function shapeCharacter(row, items = []) {
     name: row.name,
     race: row.race,
     class: row.class,
+    background: row.background || '',
     level: row.level,
     hp: row.hp,
     maxHp: row.max_hp,
@@ -376,6 +385,7 @@ app.get('/api/campaigns/:id', auth, requireMember, wrap(async (req, res) => {
     messages: await loadMessages(id),
     invites: isDM ? await all('SELECT id, email, status FROM invites WHERE campaign_id = ?', [id]) : [],
     entries: await loadEntries(id, isDM),
+    maps: await loadMaps(id, isDM),
     library: await loadLibrary(id),
     presets: (await all('SELECT * FROM enemy_presets WHERE campaign_id = ? ORDER BY name', [id])).map((r) => ({
       id: r.id, name: r.name, cr: r.cr, hp: r.hp, ac: r.ac,
@@ -442,7 +452,7 @@ app.delete('/api/campaigns/:id/members/:userId', auth, requireMember, requireDM,
 // ---------------------------------------------------------------- characters
 
 const CHAR_FIELDS = {
-  name: 'name', race: 'race', class: 'class', level: 'level', hp: 'hp', maxHp: 'max_hp',
+  name: 'name', race: 'race', class: 'class', background: 'background', level: 'level', hp: 'hp', maxHp: 'max_hp',
   tempHp: 'temp_hp', ac: 'ac', speed: 'speed', initBonus: 'init_bonus', profBonus: 'prof_bonus',
   notes: 'notes', portrait: 'portrait', spellAbility: 'spell_ability', attacksPerTurn: 'attacks_per_turn',
 };
@@ -455,12 +465,12 @@ app.post('/api/campaigns/:id/characters', auth, requireMember, wrap(async (req, 
   const id = uid();
   const b = req.body || {};
   await run(
-    `INSERT INTO characters (id, campaign_id, owner_id, name, race, class, level, hp, max_hp, temp_hp,
+    `INSERT INTO characters (id, campaign_id, owner_id, name, race, class, background, level, hp, max_hp, temp_hp,
       ac, speed, init_bonus, prof_bonus, stats, slots, spells, coins, conditions, notes, portrait, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, '', ?, ?)`,
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?, ?, ?, '', ?, ?)`,
     [
       id, req.campaignId, req.user.id, String(b.name || 'New Character').slice(0, 40),
-      String(b.race || ''), String(b.class || ''), Number(b.level) || 1,
+      String(b.race || ''), String(b.class || ''), String(b.background || ''), Number(b.level) || 1,
       Number(b.maxHp) || 10, Number(b.maxHp) || 10,
       Number(b.ac) || 10, Number(b.speed) || 30, Number(b.initBonus) || 0, Number(b.profBonus) || 2,
       J(b.stats || { str: 10, dex: 10, con: 10, int: 10, wis: 10, cha: 10 }),
@@ -1348,9 +1358,450 @@ app.post('/api/campaigns/:id/combat/death-save', auth, requireMember, wrap(async
   res.json({ ok: true, roll: nat, deathSaves: c.deathSaves, dead: !!c.dead, stable: !!c.stable, revived: nat === 20 });
 }));
 
+// ---------------------------------------------------------------- world maps
+
+const MAP_MIN = 6;
+const MAP_MAX = 48;
+
+/** Clamp a numeric map setting, falling back when it is not a number. */
+const mapInt = (v, min, max, fallback) => {
+  const n = Number(v);
+  return Number.isFinite(n) ? Math.max(min, Math.min(max, Math.round(n))) : fallback;
+};
+
+const hexColor = (v, fallback = '') => (/^#[0-9a-f]{6}$/i.test(String(v || '')) ? String(v) : fallback);
+const mapDensity = (v, fallback = 1) => {
+  const n = Number(v);
+  return Number.isFinite(n) ? Math.max(0.4, Math.min(1.8, n)) : fallback;
+};
+const MAP_SEASONS = new Set(['summer', 'autumn', 'winter', 'spring']);
+const MAP_WEATHERS = new Set(['clear', 'overcast', 'rain', 'fog', 'snow']);
+const mapConfig = (value) => {
+  const c = typeof value === 'string'
+    ? P(value, {})
+    : (value && typeof value === 'object' ? value : {});
+  return {
+    accent: hexColor(c.accent, '#a78bfa'),
+    background: hexColor(c.background, '#070810'),
+    density: mapDensity(c.density, 1),
+    season: MAP_SEASONS.has(c.season) ? c.season : 'summer',
+    weather: MAP_WEATHERS.has(c.weather) ? c.weather : 'clear',
+    mapType: typeof c.mapType === 'string' ? c.mapType.slice(0, 30) : '',
+    ...(c.infinite ? {
+      infinite: true,
+      hexSizeMeters: Math.max(20, Math.min(2000, Number(c.hexSizeMeters) || 160)),
+      start: c.start && typeof c.start === 'object'
+        ? { lat: Number(c.start.lat), lon: Number(c.start.lon) }
+        : null,
+    } : {}),
+    ...(c.geo && typeof c.geo === 'object' && Array.isArray(c.geo.bbox) && c.geo.bbox.length === 4
+      ? {
+        geo: {
+          bbox: c.geo.bbox.map(Number),
+          center: c.geo.center && typeof c.geo.center === 'object'
+            ? { lat: Number(c.geo.center.lat), lon: Number(c.geo.center.lon) }
+            : null,
+          source: String(c.geo.source || '').slice(0, 240),
+        },
+      }
+      : {}),
+  };
+};
+
+/** A waypoint image may be an uploaded data URI, a plain https link, or a local Webster photo. */
+function mapImageUrl(value) {
+  const image = String(value || '');
+  if (!image) return '';
+  if (image.startsWith('data:image/')) return checkImage(image);
+  if (/^\/assets\/(?:webster|places)\/[a-z0-9-]+\.(?:webp|jpe?g|png)$/i.test(image)) return image;
+  if (/^https?:\/\//i.test(image) && image.length <= 600) return image;
+  throw bad('That image link is not valid');
+}
+
+// A small, factual seed for the real North Ponds Park area. The letters are
+// terrain codes; the arrangement follows the two ponds and surrounding roads.
+const NORTH_PONDS_ROWS = [
+  'RRRRRRRRRRRRRRR',
+  'FFFFTTTTTFFFFFF',
+  'RTTTTTTTTTTTTTR',
+  'RTGWWWGTGWWWGTR',
+  'RTGWWWGTGWWWGTR',
+  'RTGWWWGTGWWWGTR',
+  'RTGGGGGTGGGGGTR',
+  'RTTTTTTTTTTTTTR',
+  'RUUUGGGGGGGUUUR',
+  'RUUUUGGGGGUUUUR',
+  'RRRRRRRRRRRRRRR',
+];
+const NORTH_PONDS_TERRAIN = {
+  R: 'road', F: 'forest', T: 'trail', G: 'grass', W: 'water', U: 'residential',
+};
+const NORTH_PONDS_MARKERS = [
+  {
+    row: 2, col: 7, waypoint: 'North Ponds Park', category: 'park', icon: 'tree',
+    description: 'Charles E. Sexton Memorial Park (formerly North Ponds Park) at 750 Holt Road. The park has two fishing ponds, a one-mile paved loop with fitness stations, disc golf, and a rentable lodge. Access is off Route 104 between Holt Road and Route 250.',
+    image: '/assets/webster/north-ponds-festival-west.webp',
+  },
+  {
+    row: 4, col: 5, waypoint: 'North Ponds', category: 'water', icon: 'waves',
+    description: 'The two ponds at the center of North Ponds Park. The paved loop follows the shoreline; fishing is allowed, but swimming is not.',
+    image: '/assets/webster/north-ponds-festival-west.webp',
+  },
+  {
+    row: 1, col: 6, waypoint: 'Hojack Trail', category: 'road', icon: 'road',
+    description: 'The Hojack Trail runs through the north side of North Ponds Park and connects toward Vosburg Park.',
+    image: '/assets/webster/north-ponds-aerial.webp',
+  },
+  {
+    row: 1, col: 12, waypoint: 'Bird Sanctuary Trail', category: 'park', icon: 'tree',
+    description: 'Bird Sanctuary Trail is a roughly 0.8-mile trail at 1200 Orchard Street, north of North Ponds Park.',
+    image: '/assets/webster/north-ponds-aerial.webp',
+  },
+  {
+    row: 9, col: 7, waypoint: 'Route 104 Trail', category: 'road', icon: 'road',
+    description: 'The Route 104 Trail runs along the south side of North Ponds Park, connecting the park to the wider Webster trail network.',
+    image: '/assets/webster/ny104-holt-road.webp',
+  },
+];
+const NORTH_PONDS_LABELS = [
+  { row: 0, col: 7, text: 'ORCHARD STREET', size: 14 },
+  { row: 6, col: 0, text: 'HOLT ROAD', size: 13 },
+  { row: 6, col: 14, text: 'ROUTE 250', size: 13 },
+  { row: 10, col: 7, text: 'ROUTE 104', size: 15 },
+];
+
+function northPondsSeed() {
+  const cols = 15;
+  const rows = NORTH_PONDS_ROWS.length;
+  const sqrt3 = Math.sqrt(3);
+  const centerX = ((cols - 1) + 0.5) * sqrt3 / 2;
+  const centerZ = ((rows - 1) * 1.5) / 2;
+  const markers = new Map(NORTH_PONDS_MARKERS.map((m) => [`${m.row}:${m.col}`, m]));
+  const tiles = [];
+
+  for (let row = 0; row < rows; row++) {
+    const line = NORTH_PONDS_ROWS[row];
+    for (let col = 0; col < cols; col++) {
+      const marker = markers.get(`${row}:${col}`);
+      const terrain = NORTH_PONDS_TERRAIN[line[col]] || 'grass';
+      const q = col - (row - (row & 1)) / 2;
+      tiles.push({
+        q, r: row, terrain,
+        waypoint: marker?.waypoint || '',
+        category: marker?.category || '',
+        icon: marker?.icon || '',
+        description: marker?.description || '',
+        image: marker?.image || '',
+        important: marker?.waypoint ? 1 : 0,
+      });
+    }
+  }
+
+  const labels = NORTH_PONDS_LABELS.map((label) => {
+    const q = label.col - (label.row - (label.row & 1)) / 2;
+    return {
+      text: label.text,
+      x: Math.round(((q + label.row / 2) * sqrt3 - centerX) * 10) / 10,
+      y: Math.round((label.row * 1.5 - centerZ) * 10) / 10,
+      size: label.size,
+      color: '#e8e6f2',
+    };
+  });
+
+  return { cols, rows, tiles, labels };
+}
+
+/**
+ * The client receives only what its role may see: a player never gets an
+ * unrevealed hex, a DM note, or a link to a DM-only codex entry.
+ */
+function shapeMapTile(r, viewerIsDM, hiddenEntries) {
+  const tile = {
+    q: Number(r.q), r: Number(r.r),
+    color: r.color || '', terrain: r.terrain || '',
+    elevation: Number(r.elevation) || 0,
+    label: r.label || '', icon: r.icon || '',
+    waypoint: r.waypoint || '', category: r.category || '',
+    description: r.description || '', image: r.image || '',
+    entryId: r.entry_id || '', important: !!r.important, visible: !!r.visible,
+    players: P(r.players, []), npcs: P(r.npcs, []),
+  };
+  if (viewerIsDM) tile.dmNotes = r.dm_notes || '';
+  if (!viewerIsDM && tile.entryId && hiddenEntries.has(tile.entryId)) tile.entryId = '';
+  return tile;
+}
+
+async function loadMaps(campaignId, viewerIsDM) {
+  const rows = await all('SELECT * FROM campaign_maps WHERE campaign_id = ? ORDER BY created_at', [campaignId]);
+  if (!rows.length) return [];
+
+  const ids = rows.map((m) => m.id);
+  const holes = ids.map(() => '?').join(',');
+  const [tiles, labels, hidden] = await Promise.all([
+    all(`SELECT * FROM map_tiles WHERE map_id IN (${holes})`, ids),
+    all(`SELECT * FROM map_labels WHERE map_id IN (${holes}) ORDER BY created_at`, ids),
+    all('SELECT id FROM entries WHERE campaign_id = ? AND dm_only = 1', [campaignId]),
+  ]);
+  const hiddenEntries = new Set(hidden.map((e) => e.id));
+
+  return rows.map((m) => ({
+    id: m.id,
+    name: m.name,
+    cols: mapInt(m.cols, MAP_MIN, MAP_MAX, 10),
+    rows: mapInt(m.rows, MAP_MIN, MAP_MAX, 8),
+    config: mapConfig(m.config),
+    updatedAt: Number(m.updated_at) || 0,
+    tiles: tiles
+      .filter((t) => t.map_id === m.id && (viewerIsDM || !!t.visible))
+      .map((t) => shapeMapTile(t, viewerIsDM, hiddenEntries)),
+    labels: labels
+      .filter((l) => l.map_id === m.id && (viewerIsDM || !!l.visible))
+      .map((l) => ({
+        id: l.id, text: l.text, x: Number(l.x), y: Number(l.y),
+        size: Number(l.size) || 18, color: l.color || '#e8e6f2', visible: !!l.visible,
+      })),
+  }));
+}
+
+/** Maps are visibility-filtered, so each role gets its own payload. */
+async function pushMaps(campaignId) {
+  const members = await loadMembers(campaignId);
+  const [forPlayers, forDM] = await Promise.all([
+    loadMaps(campaignId, false),
+    loadMaps(campaignId, true),
+  ]);
+  for (const m of members) {
+    io.to(`u:${m.id}:${campaignId}`).emit('patch', {
+      scope: 'maps', data: m.role === 'dm' ? forDM : forPlayers,
+    });
+  }
+}
+
+const mapAccess = wrap(async (req, res, next) => {
+  const row = await get('SELECT * FROM campaign_maps WHERE id = ?', [req.params.id]);
+  if (!row) return res.status(404).json({ error: 'Map not found' });
+  const m = await membership(row.campaign_id, req.user.id);
+  if (!m) return res.status(403).json({ error: 'Not your campaign' });
+  req.mapRow = row;
+  req.membership = m;
+  req.campaignId = row.campaign_id;
+  next();
+});
+
+app.get('/api/campaigns/:id/maps', auth, requireMember, wrap(async (req, res) => {
+  res.json({ maps: await loadMaps(req.campaignId, req.membership.role === 'dm') });
+}));
+
+app.post('/api/campaigns/:id/maps', auth, requireMember, requireDM, wrap(async (req, res) => {
+  const id = uid();
+  const isNorthPonds = req.body.preset === 'north-ponds';
+  const isRegion = req.body.preset === REGION.id;
+  const isWorld = req.body.preset === 'world';
+  const seed = isWorld ? worldSeed() : isRegion ? regionalSeed() : isNorthPonds ? northPondsSeed() : null;
+  const name = str(req.body.name).slice(0, 60)
+    || (isWorld ? 'The Infinite World' : isRegion ? REGION.name : isNorthPonds ? 'North Ponds Park, Webster' : 'Campaign Map');
+  const cols = seed?.cols || mapInt(req.body.cols, MAP_MIN, MAP_MAX, 10);
+  const rows = seed?.rows || mapInt(req.body.rows, MAP_MIN, MAP_MAX, 8);
+
+  await run(
+    `INSERT INTO campaign_maps (id, campaign_id, name, cols, rows, config, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+    [id, req.campaignId, name, cols, rows, J({
+      accent: '#a78bfa', background: '#070810', density: 1,
+      season: 'summer', weather: 'clear',
+      ...(seed?.config || {}),
+    }), now(), now()],
+  );
+
+  if (seed) {
+    for (const tile of seed.tiles) {
+      await run(
+        `INSERT INTO map_tiles (map_id, q, r, color, terrain, label, icon, waypoint, category,
+          description, image, entry_id, important, visible, dm_notes, players, npcs, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [id, tile.q, tile.r, '', tile.terrain, '', tile.icon, tile.waypoint, tile.category,
+          tile.description, tile.image, '', tile.important, 1, '', J([]), J([]), now(), now()],
+      );
+    }
+    for (const label of seed.labels) {
+      await run(
+        `INSERT INTO map_labels (id, map_id, text, x, y, size, color, visible, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [uid(), id, label.text, label.x, label.y, label.size, label.color, 1, now()],
+      );
+    }
+  }
+
+  await pushMaps(req.campaignId);
+  res.json({ id });
+}));
+
+app.patch('/api/maps/:id', auth, mapAccess, requireDM, wrap(async (req, res) => {
+  const b = req.body || {};
+  if (b.name !== undefined) {
+    await run('UPDATE campaign_maps SET name = ? WHERE id = ?', [str(b.name).slice(0, 60) || 'Campaign Map', req.params.id]);
+  }
+  if (b.cols !== undefined) {
+    const cols = mapInt(b.cols, MAP_MIN, MAP_MAX, req.mapRow.cols);
+    await run('UPDATE campaign_maps SET cols = ? WHERE id = ?', [cols, req.params.id]);
+  }
+  if (b.rows !== undefined) {
+    const rows = mapInt(b.rows, MAP_MIN, MAP_MAX, req.mapRow.rows);
+    await run('UPDATE campaign_maps SET rows = ? WHERE id = ?', [rows, req.params.id]);
+  }
+  if (b.config && typeof b.config === 'object') {
+    const config = mapConfig(b.config);
+    await run('UPDATE campaign_maps SET config = ? WHERE id = ?', [J(config), req.params.id]);
+  }
+  await run('UPDATE campaign_maps SET updated_at = ? WHERE id = ?', [now(), req.params.id]);
+  await pushMaps(req.campaignId);
+  res.json({ ok: true });
+}));
+
+app.delete('/api/maps/:id', auth, mapAccess, requireDM, wrap(async (req, res) => {
+  await run('DELETE FROM map_tiles WHERE map_id = ?', [req.params.id]);
+  await run('DELETE FROM map_labels WHERE map_id = ?', [req.params.id]);
+  await run('DELETE FROM campaign_maps WHERE id = ?', [req.params.id]);
+  await pushMaps(req.campaignId);
+  res.json({ ok: true });
+}));
+
+/** Upsert one hex. The client only sends keys it owns; everything is clamped. */
+app.put('/api/maps/:id/tiles', auth, mapAccess, requireDM, wrap(async (req, res) => {
+  const b = req.body || {};
+  const q = Number(b.q);
+  const r = Number(b.r);
+  if (!Number.isInteger(q) || !Number.isInteger(r)
+    || Math.abs(q) > 10_000_000 || Math.abs(r) > 10_000_000) {
+    throw bad('That hex is outside the known world');
+  }
+
+  let entryId = '';
+  if (b.entryId) {
+    const entry = await get('SELECT id FROM entries WHERE id = ? AND campaign_id = ?', [String(b.entryId), req.campaignId]);
+    entryId = entry ? entry.id : '';
+  }
+
+  let players = [];
+  if (Array.isArray(b.players) && b.players.length) {
+    const allowed = new Set((await all('SELECT id FROM characters WHERE campaign_id = ?', [req.campaignId])).map((c) => c.id));
+    players = b.players.map(String).filter((id) => allowed.has(id)).slice(0, 50);
+  }
+  const npcs = (Array.isArray(b.npcs) ? b.npcs : [])
+    .map((n) => str(n).slice(0, 70)).filter(Boolean).slice(0, 50);
+
+  const values = [
+    hexColor(b.color, ''),
+    str(b.terrain).slice(0, 30),
+    Math.max(-0.8, Math.min(1.6, Number(b.elevation) || 0)),
+    str(b.label).slice(0, 70),
+    str(b.icon).slice(0, 30),
+    str(b.waypoint).slice(0, 90),
+    str(b.category).slice(0, 40),
+    str(b.description).slice(0, 3000),
+    mapImageUrl(b.image),
+    entryId,
+    b.important ? 1 : 0,
+    b.visible === undefined ? 1 : (b.visible ? 1 : 0),
+    str(b.dmNotes).slice(0, 4000),
+    J(players),
+    J(npcs),
+  ];
+
+  const existing = await get('SELECT * FROM map_tiles WHERE map_id = ? AND q = ? AND r = ?', [req.params.id, q, r]);
+  if (existing) {
+    await run(
+      `UPDATE map_tiles SET color = ?, terrain = ?, elevation = ?, label = ?, icon = ?, waypoint = ?, category = ?,
+        description = ?, image = ?, entry_id = ?, important = ?, visible = ?, dm_notes = ?,
+        players = ?, npcs = ?, updated_at = ?
+       WHERE map_id = ? AND q = ? AND r = ?`,
+      [...values, now(), req.params.id, q, r],
+    );
+  } else {
+    await run(
+      `INSERT INTO map_tiles (color, terrain, elevation, label, icon, waypoint, category, description, image,
+        entry_id, important, visible, dm_notes, players, npcs, map_id, q, r, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [...values, req.params.id, q, r, now(), now()],
+    );
+  }
+
+  await run('UPDATE campaign_maps SET updated_at = ? WHERE id = ?', [now(), req.params.id]);
+  await pushMaps(req.campaignId);
+  const saved = await get('SELECT * FROM map_tiles WHERE map_id = ? AND q = ? AND r = ?', [req.params.id, q, r]);
+  res.json({ tile: shapeMapTile(saved, true, new Set()) });
+}));
+
+app.delete('/api/maps/:id/tiles', auth, mapAccess, requireDM, wrap(async (req, res) => {
+  const q = Number(req.query.q);
+  const r = Number(req.query.r);
+  if (!Number.isInteger(q) || !Number.isInteger(r)) throw bad('Which hex?');
+  await run('DELETE FROM map_tiles WHERE map_id = ? AND q = ? AND r = ?', [req.params.id, q, r]);
+  await run('UPDATE campaign_maps SET updated_at = ? WHERE id = ?', [now(), req.params.id]);
+  await pushMaps(req.campaignId);
+  res.json({ ok: true });
+}));
+
+app.post('/api/maps/:id/labels', auth, mapAccess, requireDM, wrap(async (req, res) => {
+  const b = req.body || {};
+  const text = str(b.text).slice(0, 80);
+  if (!text) throw bad('Give the label some text');
+  const id = uid();
+  const x = Math.max(-150, Math.min(150, Number(b.x) || 0));
+  const y = Math.max(-150, Math.min(150, Number(b.y) || 0));
+
+  await run(
+    `INSERT INTO map_labels (id, map_id, text, x, y, size, color, visible, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [id, req.params.id, text, x, y, mapInt(b.size, 10, 48, 20), hexColor(b.color, '#e8e6f2'), b.visible === false ? 0 : 1, now()],
+  );
+  await pushMaps(req.campaignId);
+  res.json({ id });
+}));
+
+app.patch('/api/maps/:id/labels/:labelId', auth, mapAccess, requireDM, wrap(async (req, res) => {
+  const label = await get('SELECT * FROM map_labels WHERE id = ? AND map_id = ?', [req.params.labelId, req.params.id]);
+  if (!label) throw bad('Label not found', 404);
+  const b = req.body || {};
+  if (b.text !== undefined) {
+    const text = str(b.text).slice(0, 80);
+    if (!text) throw bad('Give the label some text');
+    await run('UPDATE map_labels SET text = ? WHERE id = ?', [text, label.id]);
+  }
+  if (b.x !== undefined) await run('UPDATE map_labels SET x = ? WHERE id = ?', [Math.max(-150, Math.min(150, Number(b.x) || 0)), label.id]);
+  if (b.y !== undefined) await run('UPDATE map_labels SET y = ? WHERE id = ?', [Math.max(-150, Math.min(150, Number(b.y) || 0)), label.id]);
+  if (b.size !== undefined) await run('UPDATE map_labels SET size = ? WHERE id = ?', [mapInt(b.size, 10, 48, 20), label.id]);
+  if (b.color !== undefined) await run('UPDATE map_labels SET color = ? WHERE id = ?', [hexColor(b.color, '#e8e6f2'), label.id]);
+  if (b.visible !== undefined) await run('UPDATE map_labels SET visible = ? WHERE id = ?', [b.visible ? 1 : 0, label.id]);
+  await pushMaps(req.campaignId);
+  res.json({ ok: true });
+}));
+
+app.delete('/api/maps/:id/labels/:labelId', auth, mapAccess, requireDM, wrap(async (req, res) => {
+  await run('DELETE FROM map_labels WHERE id = ? AND map_id = ?', [req.params.labelId, req.params.id]);
+  await pushMaps(req.campaignId);
+  res.json({ ok: true });
+}));
+
+/** Globe search. User-submitted only; cached and rate-limited in geo.js. */
+app.get('/api/campaigns/:id/geo/search', auth, requireMember, wrap(async (req, res) => {
+  const q = str(req.query.q).slice(0, 160);
+  if (q.length < 2) return res.json({ results: [], attribution: '' });
+  const data = await searchGeo(q);
+  res.json(data);
+}));
+
+/** Same-origin atlas tile proxy with server-side cache and attribution. */
+app.get('/api/atlas/tile/:z/:x/:y', auth, wrap(async (req, res) => {
+  const tile = await atlasTile(req.params.z, req.params.x, req.params.y);
+  res.set('Cache-Control', 'public, max-age=86400');
+  res.type(tile.type);
+  res.send(tile.body);
+}));
+
 // ---------------------------------------------------------------- codex
 
-const KINDS = ['quest', 'npc', 'location', 'shop', 'event'];
+const KINDS = ['quest', 'npc', 'location', 'shop', 'item', 'event'];
 const MAX_IMAGE = 700_000; // ~700 KB of base64, plenty for a resized photo
 
 function shapeEntry(r) {
@@ -1444,6 +1895,187 @@ app.patch('/api/entries/:id', auth, entryAccess, wrap(async (req, res) => {
 app.delete('/api/entries/:id', auth, entryAccess, wrap(async (req, res) => {
   await run('DELETE FROM entries WHERE id = ?', [req.params.id]);
   await pushEntries(req.campaignId);
+  res.json({ ok: true });
+}));
+
+// ---------------------------------------------------------------- AI tools
+
+const aiLimit = makeRateLimiter(12, 60_000);
+
+const clip = (value, n) => String(value || '').replace(/\s+/g, ' ').trim().slice(0, n);
+
+function shapeAIGeneration(row) {
+  return {
+    id: row.id,
+    kind: row.kind,
+    prompt: row.prompt,
+    result: P(row.result, null),
+    createdAt: Number(row.created_at),
+  };
+}
+
+/**
+ * A compact, DM-authored view of the campaign. The model needs enough context
+ * to stay in the right town and avoid repeating names, but not the entire
+ * database — every token here is paid for on each generation.
+ */
+async function buildAIContext(campaignId) {
+  const campaign = await get(
+    'SELECT name, description, session_title AS "sessionTitle" FROM campaigns WHERE id = ?',
+    [campaignId],
+  );
+  const entries = await loadEntries(campaignId, true);
+  const notes = await loadNotes(campaignId, true);
+  const characters = await all(
+    'SELECT name, class, level FROM characters WHERE campaign_id = ? ORDER BY created_at',
+    [campaignId],
+  );
+  const maps = await all('SELECT name FROM campaign_maps WHERE campaign_id = ? ORDER BY created_at', [campaignId]);
+
+  const lines = [
+    `Campaign: ${campaign?.name || 'Untitled campaign'}`,
+    `Session: ${campaign?.sessionTitle || 'not set'}`,
+    `Premise: ${clip(campaign?.description, 1200) || 'A contemporary small-town supernatural mystery.'}`,
+    'Tone and rules: grounded contemporary New York small-town life; D&D 5e; hidden supernatural; ordinary people with jobs and families; dry humour; keep NPC backstories to 2-4 sentences.',
+    '',
+    'Existing player characters (do not confuse them with NPCs):',
+    ...(characters.length
+      ? characters.map((c) => `- ${c.name} — level ${c.level} ${c.class || 'adventurer'}`)
+      : ['- none yet']),
+  ];
+
+  const section = (kind, label, limit = 35) => {
+    const rows = entries.filter((e) => e.kind === kind).slice(0, limit);
+    if (!rows.length) return;
+    lines.push('', `${label}:`);
+    for (const e of rows) {
+      const body = clip(e.body, 220);
+      lines.push(`- ${e.title}${e.subtitle ? ` (${e.subtitle})` : ''}${body ? ` — ${body}` : ''}${e.dmOnly ? ' [DM only]' : ''}`);
+    }
+  };
+
+  section('npc', 'Existing NPCs — never reuse these names');
+  section('location', 'Known locations and businesses');
+  section('shop', 'Known shops');
+  section('quest', 'Current and past quests');
+  section('event', 'Recent timeline events', 18);
+  section('item', 'Known items');
+
+  const dmNotes = notes.slice(0, 10);
+  if (dmNotes.length) {
+    lines.push('', 'Campaign notes (DM private):');
+    for (const n of dmNotes) lines.push(`- ${n.title}${n.body ? `: ${clip(n.body, 220)}` : ''}${n.dmOnly ? ' [DM only]' : ''}`);
+  }
+  if (maps.length) lines.push('', `Maps: ${maps.map((m) => m.name).join(', ')}`);
+
+  return lines.join('\n').slice(0, 14_000);
+}
+
+const duplicateFor = (entries, result) => entries.find((e) => e.kind === result.kind
+  && e.title.trim().toLowerCase() === result.title.trim().toLowerCase()) || null;
+
+app.get('/api/campaigns/:id/ai/history', auth, requireMember, requireDM, wrap(async (req, res) => {
+  const rows = await all(
+    'SELECT * FROM ai_generations WHERE campaign_id = ? ORDER BY created_at DESC LIMIT 24',
+    [req.campaignId],
+  );
+  res.json({ generations: rows.map(shapeAIGeneration), status: aiStatus() });
+}));
+
+app.post('/api/campaigns/:id/ai/generate', auth, requireMember, requireDM, wrap(async (req, res) => {
+  const status = aiStatus();
+  if (!status.configured) {
+    throw Object.assign(
+      new Error('The AI model is not connected yet. Set NVIDIA_API_KEY on the server, then restart.'),
+      { status: 412, expose: true, setup: true },
+    );
+  }
+  if (!aiLimit(`${req.user.id}:${req.campaignId}`)) {
+    throw Object.assign(new Error('Easy there — too many generations in one minute. Give the table a breath.'),
+      { status: 429, expose: true });
+  }
+
+  const prompt = str(req.body?.prompt).slice(0, 2000);
+  const kind = AI_KINDS.includes(req.body?.kind) ? req.body.kind : 'auto';
+  const action = AI_ACTIONS.includes(req.body?.action) ? req.body.action : 'generate';
+  if (!prompt && action === 'generate') throw bad('Tell the Oracle what you need');
+
+  const current = req.body?.current && typeof req.body.current === 'object'
+    ? normaliseResult(req.body.current, kind)
+    : null;
+
+  const entries = await loadEntries(req.campaignId, true);
+  const context = await buildAIContext(req.campaignId);
+  const generated = await generateCampaignContent({ prompt, kind, action, current, context });
+  const duplicate = duplicateFor(entries, generated.result);
+  if (duplicate) generated.result.duplicateOf = duplicate.title;
+
+  const id = newGenerationId();
+  const row = {
+    id,
+    campaign_id: req.campaignId,
+    user_id: req.user.id,
+    kind: generated.result.kind,
+    prompt: prompt || `${action} request`,
+    result: J(generated.result),
+    created_at: now(),
+  };
+  await run(
+    `INSERT INTO ai_generations (id, campaign_id, user_id, kind, prompt, result, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    [row.id, row.campaign_id, row.user_id, row.kind, row.prompt, row.result, row.created_at],
+  );
+
+  res.json({ generation: shapeAIGeneration(row), status });
+}));
+
+/** Save a draft only when the DM explicitly asks. NPC/item entries default to DM-only. */
+app.post('/api/campaigns/:id/ai/save', auth, requireMember, requireDM, wrap(async (req, res) => {
+  const raw = req.body?.result;
+  if (!raw || typeof raw !== 'object') throw bad('There is no generated draft to save');
+  const result = normaliseResult(raw, raw.kind);
+  const share = req.body?.share === true;
+
+  if (result.kind === 'lore') {
+    await run(
+      'INSERT INTO notes (id, campaign_id, author_id, title, body, dm_only, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)',
+      [uid(), req.campaignId, req.user.id, result.title.slice(0, 80), formatEntryBody(result), share ? 0 : 1, now()],
+    );
+    await pushNotes(req.campaignId);
+    return res.json({ saved: { id: null, kind: 'journal', label: 'Journal' } });
+  }
+
+  const entryKind = result.kind === 'encounter' ? 'event' : result.kind;
+  if (!KINDS.includes(entryKind)) throw bad('That kind of draft cannot be saved');
+
+  const entries = await loadEntries(req.campaignId, true);
+  const saveKind = result.kind === 'encounter' ? 'event' : result.kind;
+  const duplicate = entries.find((e) => e.kind === saveKind
+    && e.title.trim().toLowerCase() === result.title.trim().toLowerCase()) || null;
+  if (duplicate) throw Object.assign(
+    new Error(`“${duplicate.title}” is already in the codex. Rename this draft or regenerate it.`),
+    { status: 409, expose: true },
+  );
+
+  const id = uid();
+  const subtitle = result.kind === 'event' || result.kind === 'encounter'
+    ? (result.event.when || result.subtitle)
+    : result.subtitle;
+  await run(
+    `INSERT INTO entries (id, campaign_id, kind, title, subtitle, body, image, status, data, dm_only, author_id, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, '', '', ?, ?, ?, ?, ?)`,
+    [id, req.campaignId, entryKind, result.title.slice(0, 90), String(subtitle || '').slice(0, 120),
+      formatEntryBody(result).slice(0, 8000), J({ ...result, aiGenerated: true }), share ? 0 : 1,
+      req.user.id, now(), now()],
+  );
+
+  await pushEntries(req.campaignId);
+  res.json({ saved: { id, kind: entryKind, label: entryKind === 'item' ? 'Codex item' : 'Codex' } });
+}));
+
+app.delete('/api/campaigns/:id/ai/history/:generationId', auth, requireMember, requireDM, wrap(async (req, res) => {
+  await run('DELETE FROM ai_generations WHERE id = ? AND campaign_id = ?',
+    [req.params.generationId, req.campaignId]);
   res.json({ ok: true });
 }));
 

@@ -1,0 +1,4 @@
+attempt 1 2026-11-10T22:07:03.014Z
+status 200 image/jpeg after 3716 ms
+saved 52011 bytes
+Assertion failed: !(handle->flags & UV_HANDLE_CLOSING), file src\win\async.c, line 94

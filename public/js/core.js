@@ -22,16 +22,28 @@ export const state = {
   },
   attackFrom: null, // combatant id picking a target
   entries: [],
+  maps: [],
+  mapId: null,
   library: [],
   codexTab: 'quest',
   turnAlert: null, // combatant whose turn just started, shown as a popup
   lastTurnKey: null, // guards against re-alerting on every render
-  page: 'home',
+  page: 'world',
+  partyTab: 'overview', // overview | inventory | powers
+  gameTab: 'combat',
+  creation: null, // draft while the full-screen creator is open
+  codexKind: 'npc',
+  codexSelected: null,
+  settingsTab: 'campaign',
+  chatOpen: false,
   modal: null,
   filter: '',
   selectedCharId: null,
   authMode: 'login',
-  theme: localStorage.getItem('dndds-theme') || 'light',
+  theme: localStorage.getItem('dndds-theme') || 'dark',
+  sound: localStorage.getItem('dndds-sound') !== '0', // soft chimes and dice
+  selectedItemId: null, // the item open in the inventory inspector
+  diceLabel: '', // last label typed on the dice page
   clock: Date.now(), // ticks once a second while a fight is on screen
   turnTab: 'actions',
   pendingAction: null,
@@ -41,6 +53,11 @@ export const state = {
   simple: localStorage.getItem('dndds-simple') !== '0', // plain-language mode, on by default
   rollRequests: [], // pending "the DM wants a roll" prompts for this user
   economy: null, // action/bonus tracker for the current turn
+  ai: {
+    loaded: false, loading: false, busy: false, error: '', setup: false,
+    history: [], current: null, prompt: '', status: null, editing: false,
+    saved: null, share: false, locationId: '',
+  },
 };
 
 // ---------------------------------------------------------------- api
@@ -202,8 +219,9 @@ export const setRenderer = (fn) => { renderFn = fn; };
 /** A stable identity for a field, so its value survives a re-render. */
 function fieldKey(el) {
   if (el.dataset.keep) return `k:${el.dataset.keep}`;
-  const act = el.closest('form')?.dataset?.act;
-  if (act && el.name) return `f:${act}:${el.name}`;
+  const form = el.closest('form');
+  const act = form?.dataset?.act;
+  if (act && el.name) return `f:${act}:${form?.dataset?.formKey || ''}:${el.name}`;
   return null;
 }
 
@@ -277,11 +295,26 @@ export async function openCampaign(id) {
   state.campaignInvites = data.invites || [];
   state.presets = data.presets || [];
   state.entries = data.entries || [];
+  state.maps = data.maps || [];
+  const requestedMap = new URLSearchParams(window.location.search).get('map');
+  const requested = requestedMap && state.maps.find((m) => m.id === requestedMap);
+  if (requested) state.mapId = requested.id;
+  else if (!state.maps.some((m) => m.id === state.mapId)) state.mapId = state.maps[0]?.id || null;
   state.library = data.library || [];
   state.lastTurnKey = null; // a fresh load should not fire a stale turn alert
   state.turnAlert = null;
   state.selectedCharId = myChars()[0]?.id || state.characters[0]?.id || null;
-  state.page = 'home';
+  state.page = 'world';
+  state.partyTab = 'overview';
+  state.codexKind = 'npc';
+  state.codexSelected = null;
+  state.chatOpen = false;
+  state.creation = null;
+  state.ai = {
+    loaded: false, loading: false, busy: false, error: '', setup: false,
+    history: [], current: null, prompt: '', status: null, editing: false,
+    saved: null, share: false, locationId: '',
+  };
   localStorage.setItem('dndds-campaign', id);
   joinSocket(id);
   render();
@@ -293,28 +326,49 @@ export async function refresh() {
 
 // ---------------------------------------------------------------- turn alert
 
-/** A short rising chime, synthesised so there is no audio file to ship. */
-function chime() {
+/**
+ * A tiny synthesised sound kit — no audio files to ship, and every cue is gated
+ * by the player's own sound preference. The AudioContext is created lazily and
+ * reused, because browsers cap how many you may open.
+ */
+let audio = null;
+
+export function sfx(kind = 'chime') {
+  if (!state.sound) return;
   try {
     const Ctx = window.AudioContext || window.webkitAudioContext;
     if (!Ctx) return;
-    const ctx = new Ctx();
-    [660, 880].forEach((freq, i) => {
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.type = 'sine';
-      osc.frequency.value = freq;
-      const t = ctx.currentTime + i * 0.14;
-      gain.gain.setValueAtTime(0.0001, t);
-      gain.gain.exponentialRampToValueAtTime(0.25, t + 0.02);
-      gain.gain.exponentialRampToValueAtTime(0.0001, t + 0.3);
-      osc.connect(gain).connect(ctx.destination);
-      osc.start(t);
-      osc.stop(t + 0.32);
-    });
-    setTimeout(() => ctx.close(), 900);
-  } catch { /* audio blocked until the user interacts — not worth surfacing */ }
+    audio = audio || new Ctx();
+    if (audio.state === 'suspended') audio.resume().catch(() => {});
+    const t0 = audio.currentTime;
+
+    const tone = (freq, delay, dur, peak = 0.16, type = 'sine') => {
+      const osc = audio.createOscillator();
+      const gain = audio.createGain();
+      osc.type = type;
+      osc.frequency.setValueAtTime(freq, t0 + delay);
+      gain.gain.setValueAtTime(0.0001, t0 + delay);
+      gain.gain.exponentialRampToValueAtTime(peak, t0 + delay + 0.02);
+      gain.gain.exponentialRampToValueAtTime(0.0001, t0 + delay + dur);
+      osc.connect(gain).connect(audio.destination);
+      osc.start(t0 + delay);
+      osc.stop(t0 + delay + dur + 0.02);
+    };
+
+    if (kind === 'dice') {
+      // Three quick wooden clatters.
+      [180, 260, 210].forEach((f, i) => tone(f, i * 0.055, 0.08, 0.09, 'triangle'));
+    } else if (kind === 'click') {
+      tone(560, 0, 0.05, 0.045, 'triangle');
+    } else {
+      // A short rising chime.
+      tone(660, 0, 0.32, 0.16);
+      tone(880, 0.14, 0.3, 0.14);
+    }
+  } catch { /* audio is blocked until the user interacts — never worth surfacing */ }
 }
+
+const chime = () => sfx('chime');
 
 /**
  * Fire the "your turn" popup when the active combatant becomes one this user
@@ -344,6 +398,7 @@ export function checkMyTurn() {
   if (navigator.vibrate) navigator.vibrate([160, 80, 160]);
 }
 
+
 // ---------------------------------------------------------------- socket
 
 let socket = null;
@@ -358,6 +413,12 @@ export function initSocket() {
       case 'members': state.members = data; break;
       case 'characters': state.characters = data; break;
       case 'entries': state.entries = data; break;
+      case 'maps':
+        state.maps = data;
+        // The world page owns its own DOM so drags and the 3D canvas survive a
+        // patch. Other pages can simply re-render.
+        if (state.page === 'world') window.dispatchEvent(new CustomEvent('dndds:maps'));
+        break;
       case 'library': state.library = data; break;
       case 'combat':
         state.combat = data;

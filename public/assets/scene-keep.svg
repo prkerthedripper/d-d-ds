@@ -1,0 +1,88 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 900" preserveAspectRatio="xMidYMid slice">
+  <defs>
+    <linearGradient id="hall" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#0a0908"/><stop offset=".5" stop-color="#16110d"/><stop offset="1" stop-color="#070505"/>
+    </linearGradient>
+    <radialGradient id="window" cx=".5" cy=".4" r=".6">
+      <stop offset="0" stop-color="#cfe0dc" stop-opacity=".5"/>
+      <stop offset=".5" stop-color="#9fb6b2" stop-opacity=".18"/>
+      <stop offset="1" stop-color="#9fb6b2" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="shaft" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#dfe8e2" stop-opacity=".22"/>
+      <stop offset="1" stop-color="#dfe8e2" stop-opacity="0"/>
+    </linearGradient>
+    <radialGradient id="torch" cx=".5" cy=".5" r=".5">
+      <stop offset="0" stop-color="#ffca7a" stop-opacity=".55"/>
+      <stop offset=".4" stop-color="#e08a3c" stop-opacity=".2"/>
+      <stop offset="1" stop-color="#e08a3c" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="stone" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#241c16"/><stop offset="1" stop-color="#100c09"/>
+    </linearGradient>
+    <filter id="blur"><feGaussianBlur stdDeviation="22"/></filter>
+  </defs>
+
+  <rect width="1600" height="900" fill="url(#hall)"/>
+
+  <!-- back wall + arched window -->
+  <rect x="0" y="0" width="1600" height="820" fill="#120e0b"/>
+  <g>
+    <path d="M690 640 L690 300 Q810 150 930 300 L930 640Z" fill="#0a1518"/>
+    <path d="M690 640 L690 300 Q810 150 930 300 L930 640Z" fill="url(#window)"/>
+    <path d="M810 205 L810 640 M690 420 L930 420" stroke="#241c16" stroke-width="9"/>
+    <path d="M745 640 L745 330 Q810 240 875 330 L875 640" stroke="#241c16" stroke-width="7" fill="none"/>
+    <path d="M690 640 L690 300 Q810 150 930 300 L930 640" stroke="#2d231a" stroke-width="10" fill="none"/>
+  </g>
+  <path d="M700 640 L640 900 L990 900 L930 640Z" fill="url(#shaft)" filter="url(#blur)"/>
+
+  <!-- stone arches left and right -->
+  <g fill="url(#stone)" stroke="#2b2118" stroke-width="2">
+    <path d="M40 900 L40 120 Q190 30 340 120 L340 900Z"/>
+    <path d="M1260 900 L1260 120 Q1410 30 1560 120 L1560 900Z"/>
+  </g>
+  <g fill="#090705">
+    <path d="M150 900 L150 300 Q235 230 320 300 L320 900Z"/>
+    <path d="M1280 900 L1280 300 Q1365 230 1450 300 L1450 900Z"/>
+  </g>
+
+  <!-- hanging banners -->
+  <g>
+    <path d="M420 0 L520 0 L520 300 L470 262 420 300Z" fill="#3d1414"/>
+    <path d="M440 60 L500 60 L500 78 L440 78Z" fill="#a67c3a" opacity=".7"/>
+    <path d="M470 110 L470 210 M446 150 L494 150" stroke="#a67c3a" stroke-width="3" opacity=".55"/>
+    <path d="M1080 0 L1180 0 L1180 300 L1130 262 1080 300Z" fill="#3d1414"/>
+    <path d="M1100 60 L1160 60 L1160 78 L1100 78Z" fill="#a67c3a" opacity=".7"/>
+    <path d="M1130 110 L1130 210 M1106 150 L1154 150" stroke="#a67c3a" stroke-width="3" opacity=".55"/>
+  </g>
+
+  <!-- columns foreground -->
+  <g fill="#1a1310">
+    <rect x="0" y="0" width="70" height="900"/>
+    <rect x="1530" y="0" width="70" height="900"/>
+  </g>
+
+  <!-- torches -->
+  <g>
+    <circle cx="400" cy="430" r="170" fill="url(#torch)" filter="url(#blur)"/>
+    <circle cx="1200" cy="430" r="170" fill="url(#torch)" filter="url(#blur)"/>
+    <rect x="394" y="440" width="12" height="70" fill="#2b2118"/>
+    <rect x="1194" y="440" width="12" height="70" fill="#2b2118"/>
+    <path d="M400 400 q16 26 0 44 q-16 -18 0 -44Z" fill="#ffce84" opacity=".9"/>
+    <path d="M1200 400 q16 26 0 44 q-16 -18 0 -44Z" fill="#ffce84" opacity=".9"/>
+  </g>
+
+  <!-- floor -->
+  <path d="M0 810 L1600 810 L1600 900 L0 900Z" fill="#0a0806"/>
+  <g stroke="#201811" stroke-width="2" opacity=".8">
+    <path d="M0 838 L1600 838"/><path d="M240 900 L330 810"/><path d="M640 900 L700 810"/>
+    <path d="M1020 900 L980 810"/><path d="M1360 900 L1270 810"/>
+  </g>
+  <path d="M700 810 L930 810 L1010 900 L620 900Z" fill="#1a2422" opacity=".35"/>
+
+  <!-- dust motes -->
+  <g fill="#e8dcc2" opacity=".35">
+    <circle cx="760" cy="420" r="1.4"/><circle cx="840" cy="500" r="1"/><circle cx="800" cy="560" r="1.6"/>
+    <circle cx="880" cy="380" r="1.1"/><circle cx="720" cy="600" r="1.2"/>
+  </g>
+</svg>

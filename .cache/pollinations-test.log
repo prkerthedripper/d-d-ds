@@ -1,0 +1,4 @@
+start 2026-11-10T22:05:40.219Z
+status 503 after 3521 ms application/json; charset=utf-8
+{"status":503,"success":false,"error":{"code":"SERVICE_UNAVAILABLE","message":"The Classic API is at its limit right now. Retry after 10s, or get full access to every model with a pollen key at https://enter.pollinations.ai/?ref=classic","timestamp":"2026-11-10T22:05:44.384Z","fixUrl":"https://enter.pollinations.ai/?ref=classic"}}
+Assertion failed: !(handle->flags & UV_HANDLE_CLOSING), file src\win\async.c, line 94

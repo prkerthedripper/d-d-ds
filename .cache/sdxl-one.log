@@ -1,0 +1,4 @@
+request start 2026-11-10T22:03:11.658Z
+status 404 after 364 ms
+response bytes 162
+{"status":404,"title":"Not Found","detail":"Function '387f6e3e-469c-4c35-be6c-eda8af91161e': Not found for account '2Eoux1lPlC8VOrkKqtTizPnoGllp3bfRlDirj-HxiQA'"}

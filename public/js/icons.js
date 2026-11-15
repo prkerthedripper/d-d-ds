@@ -18,6 +18,12 @@ const PATHS = {
   dragon: '<path d="M12 2.5 20 7v10l-8 4.5L4 17V7Z"/><path d="m8.5 9 3.5 6 3.5-6Z"/>',
   sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m4.9 4.9 1.4 1.4"/><path d="m17.7 17.7 1.4 1.4"/><path d="m19.1 4.9-1.4 1.4"/><path d="m6.3 17.7-1.4 1.4"/>',
   moon: '<path d="M20 14.5A8.5 8.5 0 0 1 9.5 4 8.5 8.5 0 1 0 20 14.5Z"/>',
+  sound: '<path d="M4 9v6h4l5 4V5L8 9Z"/><path d="M16.5 8.7a4.8 4.8 0 0 1 0 6.6"/><path d="M19.2 6.2a8.4 8.4 0 0 1 0 11.6"/>',
+  soundOff: '<path d="M4 9v6h4l5 4V5L8 9Z"/><path d="m16.5 9.5 4.5 5"/><path d="m21 9.5-4.5 5"/>',
+  eye: '<path d="M2.5 12S6 5.5 12 5.5 21.5 12 21.5 12 18 18.5 12 18.5 2.5 12 2.5 12Z"/><circle cx="12" cy="12" r="3.2"/>',
+  crown: '<path d="m3 8 4.2 3.2L12 5l4.8 6.2L21 8l-2 11H5Z"/><path d="M5.5 16.5h13"/>',
+  compass: '<circle cx="12" cy="12" r="9"/><path d="m15.6 8.4-2.1 5.1-5.1 2.1 2.1-5.1Z"/><circle cx="12" cy="12" r=".8" fill="currentColor" stroke="none"/>',
+  globe: '<circle cx="12" cy="12" r="9"/><path d="M3 12h18"/><path d="M12 3c3 3.1 4.5 6.1 4.5 9s-1.5 5.9-4.5 9c-3-3.1-4.5-6.1-4.5-9S9 6.1 12 3Z"/>',
 
   // actions
   plus: '<path d="M12 5v14"/><path d="M5 12h14"/>',
@@ -59,9 +65,29 @@ const PATHS = {
   brain: '<path d="M9.5 4a2.5 2.5 0 0 0-2.4 3.2A2.5 2.5 0 0 0 5 12a2.5 2.5 0 0 0 1.6 4.7A2.5 2.5 0 0 0 12 19V5.5A1.5 1.5 0 0 0 10.5 4Z"/><path d="M14.5 4a2.5 2.5 0 0 1 2.4 3.2A2.5 2.5 0 0 1 19 12a2.5 2.5 0 0 1-1.6 4.7A2.5 2.5 0 0 1 12 19"/>',
   arrowDown: '<path d="M12 5v14"/><path d="m6 13 6 6 6-6"/>',
   link: '<path d="M10 13a5 5 0 0 0 7 0l2-2a5 5 0 0 0-7-7l-1 1"/><path d="M14 11a5 5 0 0 0-7 0l-2 2a5 5 0 0 0 7 7l1-1"/>',
+
+  // world map
+  pin: '<path d="M12 21s6.5-5.6 6.5-10.5A6.5 6.5 0 0 0 5.5 10.5C5.5 15.4 12 21 12 21Z"/><circle cx="12" cy="10.5" r="2.3"/>',
+  building: '<path d="M4 21V5a2 2 0 0 1 2-2h7a2 2 0 0 1 2 2v16"/><path d="M15 9h3a2 2 0 0 1 2 2v10"/><path d="M8 7h3M8 11h3M8 15h3M8 19h3"/><path d="M3 21h18"/>',
+  tree: '<path d="M12 3 6.5 11h3L5 17h14l-4.5-6h3Z"/><path d="M12 17v4"/>',
+  waves: '<path d="M3 8c2 0 2 2 4 2s2-2 4-2 2 2 4 2 2-2 4-2"/><path d="M3 13c2 0 2 2 4 2s2-2 4-2 2 2 4 2 2-2 4-2"/><path d="M3 18c2 0 2 2 4 2s2-2 4-2 2 2 4 2 2-2 4-2"/>',
+  road: '<path d="M7 3 4 21"/><path d="M17 3l3 18"/><path d="M12 4v4M12 12v4M12 20v1"/>',
+  flask: '<path d="M9 3h6"/><path d="M10 3v6L4.8 19a1.5 1.5 0 0 0 1.3 2.2h11.8a1.5 1.5 0 0 0 1.3-2.2L14 9V3"/><path d="M7.5 15h9"/>',
+  text: '<path d="M5 6V4h14v2"/><path d="M12 4v16"/><path d="M8.5 20h7"/>',
+  brush: '<path d="M14.5 4.5 19.5 9.5 9 20H4v-5Z"/><path d="m12.5 6.5 5 5"/>',
+  eraser: '<path d="m4 15 8-8 7 7-5 5H8Z"/><path d="m9 10 7 7"/><path d="M4 21h16"/>',
+  hand: '<path d="M8 12V5.5a1.5 1.5 0 0 1 3 0V11"/><path d="M11 11V4.5a1.5 1.5 0 0 1 3 0V11"/><path d="M14 11V6.5a1.5 1.5 0 0 1 3 0V13"/><path d="M17 10a1.5 1.5 0 0 1 3 0v5a7 7 0 0 1-7 7h-1a6 6 0 0 1-4.6-2.1L4 16a1.6 1.6 0 0 1 2.4-2.1L9 16"/>',
+  layers: '<path d="m12 3 9 5-9 5-9-5Z"/><path d="m3 13 9 5 9-5"/><path d="m3 17 9 5 9-5"/>',
+  undo: '<path d="M9 5 4 10l5 5"/><path d="M4 10h9a6 6 0 0 1 0 12h-2"/>',
+  redo: '<path d="m15 5 5 5-5 5"/><path d="M20 10h-9a6 6 0 0 0 0 12h2"/>',
+  hex: '<path d="m12 2.5 8 4.6v9.8l-8 4.6-8-4.6V7.1Z"/>',
+  map: '<path d="M3 6.5 9 4l6 2.5L21 4v13.5L15 20l-6-2.5L3 20Z"/><path d="M9 4v13.5"/><path d="M15 6.5V20"/>',
+  crosshair: '<circle cx="12" cy="12" r="8"/><path d="M12 2v4M12 18v4M2 12h4M18 12h4"/>',
 };
 
-/** Category -> icon + tint, used for the placeholder art on inventory items. */
+import { artItem } from './art.js';
+
+/** Category -> icon + tint, used as the fallback under the item photograph. */
 export const ITEM_LOOK = {
   Weapon: { icon: 'sword', tint: '#c0392b' },
   Armor: { icon: 'armor', tint: '#5b6b8c' },
@@ -75,10 +101,12 @@ export const ITEM_LOOK = {
 export const itemLook = (category) => ITEM_LOOK[category] || ITEM_LOOK.Other;
 
 /** A square tinted tile with the category icon — the item "picture". */
-export function itemTile(category, size = 38) {
+export function itemTile(category, size = 38, name = '') {
   const look = itemLook(category);
-  return `<span class="item-tile" style="--tint:${look.tint};width:${size}px;height:${size}px">
-    ${icon(look.icon, { size: Math.round(size * 0.55) })}</span>`;
+  return `<span class="item-tile has-art" style="--tint:${look.tint};width:${size}px;height:${size}px">
+    ${icon(look.icon, { size: Math.round(size * 0.55) })}
+    <img class="item-art" src="${artItem(name, category)}" alt="" loading="lazy" onerror="this.remove()" />
+  </span>`;
 }
 
 /**

@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 520">
+  <defs>
+    <linearGradient id="rim" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#c9a35c" stop-opacity=".55"/>
+      <stop offset=".55" stop-color="#6b5230" stop-opacity=".1"/>
+      <stop offset="1" stop-color="#0a0806" stop-opacity="0"/>
+    </linearGradient>
+    <linearGradient id="body" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1a1712"/><stop offset="1" stop-color="#0a0907"/>
+    </linearGradient>
+  </defs>
+  <g>
+    <!-- cloak -->
+    <path d="M200 96 Q150 104 132 168 Q112 240 78 520 L322 520 Q288 240 268 168 Q250 104 200 96Z" fill="url(#body)"/>
+    <path d="M200 96 Q150 104 132 168 L146 520 L200 520Z" fill="#0d0b08"/>
+    <!-- hood -->
+    <path d="M200 34 Q150 42 138 108 Q132 152 158 176 Q200 196 242 176 Q268 152 262 108 Q250 42 200 34Z" fill="#12100c"/>
+    <path d="M200 62 Q168 68 160 112 Q156 144 176 160 Q200 172 224 160 Q244 144 240 112 Q232 68 200 62Z" fill="#050505"/>
+    <!-- face shadow -->
+    <path d="M200 74 Q178 78 172 112 Q168 140 186 152 Q200 158 214 152 Q232 140 228 112 Q222 78 200 74Z" fill="#020202"/>
+    <!-- rim light -->
+    <path d="M200 34 Q150 42 138 108 Q132 152 158 176" fill="none" stroke="url(#rim)" stroke-width="3"/>
+    <path d="M132 168 Q112 240 78 520" fill="none" stroke="#c9a35c" stroke-width="1.6" opacity=".35"/>
+    <!-- bow -->
+    <path d="M300 150 Q342 300 300 470" fill="none" stroke="#241a10" stroke-width="10"/>
+    <path d="M300 150 Q342 300 300 470" fill="none" stroke="#8a6a34" stroke-width="2" opacity=".5"/>
+    <path d="M300 150 L300 470" stroke="#8a6a34" stroke-width="1.4" opacity=".45"/>
+    <!-- quiver -->
+    <path d="M96 240 L74 400 L108 410 L118 250Z" fill="#100d09"/>
+    <g stroke="#3a2c1a" stroke-width="4"><path d="M84 232 L80 260"/><path d="M96 230 L94 258"/><path d="M106 234 L106 262"/></g>
+  </g>
+</svg>

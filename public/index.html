@@ -1,14 +1,32 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="light">
+<html lang="en" data-theme="dark">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-  <meta name="theme-color" content="#151726" />
+  <meta name="theme-color" content="#05060b" />
+  <meta name="description" content="D&D DS — a modern supernatural campaign companion. Something came through the crystal." />
   <title>D&amp;D DS — Dripper Studios</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@300;400;500;600;700&family=Cormorant+Garamond:wght@500;600;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="/css/styles.css" />
-  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%236d47e0' stroke-width='1.75' stroke-linecap='round' stroke-linejoin='round'><path d='M12 2.5 20 7v10l-8 4.5L4 17V7Z'/><path d='m8.5 9 3.5 6 3.5-6Z'/></svg>" />
+  <link rel="stylesheet" href="/css/game.css" />
+  <link rel="stylesheet" href="/css/game-screens.css" />
+  <link rel="stylesheet" href="/css/creator.css" />
+  <link rel="stylesheet" href="/css/ai-tools.css" />
+  <link rel="icon" href="/assets/crystal.svg" />
 </head>
 <body>
+  <div id="boot" class="boot">
+    <div class="boot-inner">
+      <img class="boot-crest" src="/assets/crystal.svg" alt="" />
+      <div class="boot-title">D&amp;D DS</div>
+      <div class="boot-rule"><span></span><i></i><span></span></div>
+      <div class="boot-sub">Dripper Studios</div>
+      <div class="boot-bar"><i></i></div>
+      <div class="boot-hint">The crystal is awake…</div>
+    </div>
+  </div>
   <div id="root"></div>
   <div id="toasts"></div>
   <script src="/socket.io/socket.io.js"></script>
