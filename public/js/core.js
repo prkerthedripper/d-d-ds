@@ -221,7 +221,12 @@ function fieldKey(el) {
   if (el.dataset.keep) return `k:${el.dataset.keep}`;
   const form = el.closest('form');
   const act = form?.dataset?.act;
-  if (act && el.name) return `f:${act}:${form?.dataset?.formKey || ''}:${el.name}`;
+  if (act && el.name) {
+    // Checkbox groups share a name, so preserve each option separately instead
+    // of letting the last box's state overwrite the whole group on re-render.
+    const option = el.type === 'checkbox' || el.type === 'radio' ? `:${el.value}` : '';
+    return `f:${act}:${form?.dataset?.formKey || ''}:${el.name}${option}`;
+  }
   return null;
 }
 

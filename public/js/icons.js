@@ -68,6 +68,10 @@ const PATHS = {
 
   // world map
   pin: '<path d="M12 21s6.5-5.6 6.5-10.5A6.5 6.5 0 0 0 5.5 10.5C5.5 15.4 12 21 12 21Z"/><circle cx="12" cy="10.5" r="2.3"/>',
+  maximize: '<path d="M9 3H3v6"/><path d="M15 3h6v6"/><path d="M21 15v6h-6"/><path d="M3 15v6h6"/>',
+  minimize: '<path d="M4 9h5V4"/><path d="M20 9h-5V4"/><path d="M20 15h-5v5"/><path d="M4 15h5v5"/>',
+  mountain: '<path d="m3 20 6-12 4 7 2-3 6 8Z"/><path d="m9 8 1.5 3"/>',
+  tent: '<path d="M12 3 3 21h18Z"/><path d="M12 3v18"/><path d="m7.5 21 4.5-8 4.5 8"/>',
   building: '<path d="M4 21V5a2 2 0 0 1 2-2h7a2 2 0 0 1 2 2v16"/><path d="M15 9h3a2 2 0 0 1 2 2v10"/><path d="M8 7h3M8 11h3M8 15h3M8 19h3"/><path d="M3 21h18"/>',
   tree: '<path d="M12 3 6.5 11h3L5 17h14l-4.5-6h3Z"/><path d="M12 17v4"/>',
   waves: '<path d="M3 8c2 0 2 2 4 2s2-2 4-2 2 2 4 2 2-2 4-2"/><path d="M3 13c2 0 2 2 4 2s2-2 4-2 2 2 4 2 2-2 4-2"/><path d="M3 18c2 0 2 2 4 2s2-2 4-2 2 2 4 2 2-2 4-2"/>',

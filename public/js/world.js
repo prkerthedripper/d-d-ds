@@ -9,6 +9,7 @@ import { state, api, esc, on, render, isDM, toast, fail } from './core.js';
 import { icon } from './icons.js';
 import { pickImage } from './images.js';
 import { WEBSTER_PHOTOS, NORTH_PONDS_HERO, NORTH_PONDS_PARK_PHOTO, photoForFile } from './webster.js';
+import { artPortrait } from './art.js';
 import { EarthExplorer, EARTH_CAMPAIGN } from './earth.js';
 import { WorldAtlas } from './atlas.js';
 
@@ -62,6 +63,12 @@ const CATEGORIES = [
   { id: 'danger', name: 'Danger', icon: 'skull' },
   { id: 'water', name: 'Water', icon: 'waves' },
   { id: 'road', name: 'Road', icon: 'road' },
+  { id: 'village', name: 'Village', icon: 'home' },
+  { id: 'town', name: 'Town', icon: 'building' },
+  { id: 'cave', name: 'Cave', icon: 'mountain' },
+  { id: 'dungeon', name: 'Dungeon', icon: 'skull' },
+  { id: 'ruin', name: 'Ruin', icon: 'building' },
+  { id: 'camp', name: 'Camp', icon: 'tent' },
   { id: 'other', name: 'Other', icon: 'target' },
 ];
 
@@ -73,6 +80,24 @@ const ICON_CHOICES = [
 
 const categoryOf = (id) => CATEGORIES.find((c) => c.id === id) || CATEGORIES[0];
 const iconFor = (tile) => tile.icon || categoryOf(tile.category).icon;
+
+// A world is a map with a purpose. The server already stores this in
+// map.config.mapType; these are the friendly, visible categories for the DM.
+const WORLD_TYPES = [
+  { id: 'region', name: 'Region', icon: 'map', note: 'A broad stretch of country, coast or frontier.' },
+  { id: 'village', name: 'Village', icon: 'home', note: 'A small settlement with a handful of streets.' },
+  { id: 'town', name: 'Town', icon: 'building', note: 'A busy settlement with walls, trade and local trouble.' },
+  { id: 'city', name: 'City', icon: 'building', note: 'A dense urban map of districts and factions.' },
+  { id: 'wilderness', name: 'Wilderness', icon: 'tree', note: 'Forest, hills, marsh or open country.' },
+  { id: 'cave', name: 'Cave', icon: 'mountain', note: 'A cave mouth, cavern network or underdark approach.' },
+  { id: 'dungeon', name: 'Dungeon', icon: 'skull', note: 'A dangerous site built to be explored room by room.' },
+  { id: 'ruin', name: 'Ruin', icon: 'building', note: 'A broken place with a history and a secret.' },
+  { id: 'camp', name: 'Camp', icon: 'tent', note: 'A camp, caravan stop or temporary base.' },
+  { id: 'landmark', name: 'Landmark', icon: 'star', note: 'A tower, shrine, portal or singular location.' },
+  { id: 'world', name: 'Open world', icon: 'globe', note: 'A whole world, including an infinite hex frontier.' },
+];
+const worldTypeOf = (map) => WORLD_TYPES.find((t) => t.id === map?.config?.mapType)
+  || (map?.config?.infinite ? WORLD_TYPES.find((t) => t.id === 'world') : WORLD_TYPES[0]);
 
 const SEASONS = {
   summer: { name: 'Summer', note: 'Green lawns, full canopy' },
@@ -96,7 +121,7 @@ const weatherOf = (map = activeMap()) => (WEATHERS[map?.config?.weather] ? map.c
 /** Editor state. Kept outside the render cycle so a re-render never wipes it. */
 const ui = {
   view: 'world', // DM starts on the clean map; Edit unlocks the tools
-  layer: 'atlas', // world atlas first; the hex world is the close-zoom layer
+  layer: 'campaign', // the hex world is the only world surface
   tool: 'select',
   terrain: 'urban',
   color: TERRAINS.urban.color,
@@ -173,57 +198,68 @@ const isEditing = () => isDM() && ui.view === 'edit';
 // ---------------------------------------------------------------- markup
 
 function mapOptions() {
-  return maps().map((m) => `<option value="${m.id}" ${m.id === activeMap()?.id ? 'selected' : ''}>${esc(m.name)}</option>`).join('');
+  const groups = WORLD_TYPES.map((type) => {
+    const list = maps().filter((m) => worldTypeOf(m).id === type.id)
+      .sort((a, b) => String(a.name).localeCompare(String(b.name)));
+    if (!list.length) return '';
+    return `<optgroup label="${esc(type.name)}">${list.map((m) => `
+      <option value="${m.id}" ${m.id === activeMap()?.id ? 'selected' : ''}>${esc(m.name)}${m.config?.infinite ? ' · infinite' : ''}</option>
+    `).join('')}</optgroup>`;
+  }).join('');
+  return groups || maps().map((m) => `<option value="${m.id}" ${m.id === activeMap()?.id ? 'selected' : ''}>${esc(m.name)}</option>`).join('');
 }
 
 export function worldView() {
   const map = activeMap();
+  const activeType = map ? worldTypeOf(map) : null;
   const editing = isEditing();
   const dm = isDM();
-  const onEarth = !!map && ui.layer === 'earth';
-  const onAtlas = ui.layer === 'atlas';
 
   return `
-  <div class="world-page ${editing ? 'is-editing' : ''} ${onEarth ? 'is-earth' : ''} ${onAtlas ? 'is-atlas' : ''}">
+  <div class="world-page ${editing ? 'is-editing' : ''} ${dm ? 'is-dm' : ''}">
     <header class="world-top">
       <div class="world-title">
-        <div class="eyebrow">${onEarth ? 'Earth Explorer · NASA Blue Marble' : onAtlas ? 'World Atlas · OpenStreetMap' : 'The world · Webster & Ontario'}</div>
-        <h1>${onEarth ? 'Find your way in' : onAtlas ? 'Everywhere, at every scale' : map ? esc(map.name) : 'World map'}</h1>
+        <div class="eyebrow">${dm ? 'DM · HEX MAP BUILDER' : 'HEX MAP · PLAYER VIEW'}</div>
+        <div class="world-heading">
+          <h1>${map ? esc(map.name) : 'World map'}</h1>
+          ${dm ? '<span class="dm-badge">DM</span>' : ''}
+        </div>
+        ${map ? `<p class="world-subtitle">${esc(activeType?.name || 'Region')}${map.config?.infinite ? ' · infinite frontier' : ` · ${map.cols} × ${map.rows} hexes`}</p>` : ''}
       </div>
       <div class="world-actions">
-        ${onEarth ? `
-          <span class="world-env earth-coord">${icon('globe', { size: 13 })} ${EARTH_CAMPAIGN.name}</span>
-          <button class="btn sm" data-act="earth-focus-campaign">${icon('target', { size: 13 })} Webster</button>
-        ` : onAtlas ? `
-          <span class="world-env">${icon('globe', { size: 13 })} NASA Blue Marble globe</span>
-          <button class="btn sm" data-act="atlas-globe">${icon('globe', { size: 13 })} Globe</button>
-        ` : map ? `
+        ${map ? `
+          <span class="world-env world-type-chip" title="${esc(activeType?.note || '')}">
+            ${icon(activeType?.icon || 'map', { size: 13 })} ${esc(activeType?.name || 'Region')}</span>
           <span class="world-env" title="${esc(SEASONS[seasonOf(map)].note)} · ${esc(WEATHERS[weatherOf(map)].note)}">
           ${icon('sun', { size: 13 })} ${esc(SEASONS[seasonOf(map)].name)} · ${esc(WEATHERS[weatherOf(map)].name)}</span>
-          <button class="btn sm" data-act="world-atlas">${icon('map', { size: 13 })} Atlas</button>
-          <button class="btn sm" data-act="world-earth">${icon('globe', { size: 13 })} Earth</button>
-          ${maps().length > 1 ? `<label class="world-map-pick">${icon('layers', { size: 14 })}<select data-change="world-switch-map" aria-label="Switch map">${mapOptions()}</select></label>` : ''}
-          ${dm ? `<div class="world-mode" role="group" aria-label="Map mode">
+          ${maps().length > 1 ? `<label class="world-map-pick">${icon('layers', { size: 14 })}<select data-change="world-switch-map" aria-label="Switch world">${mapOptions()}</select></label>` : ''}
+          ${dm ? `<button class="btn sm" data-act="world-catalog">${icon('layers', { size: 13 })} Worlds</button>
+          <button class="btn sm primary" data-act="world-new-map">${icon('plus', { size: 13 })} Create world</button>
+          <div class="world-mode" role="group" aria-label="Map mode">
             <button class="${ui.view === 'world' ? 'on' : ''}" data-act="world-mode" data-mode="world">
               ${icon('compass', { size: 14 })} Explore</button>
             <button class="${ui.view === 'edit' ? 'on' : ''}" data-act="world-mode" data-mode="edit">
               ${icon('brush', { size: 14 })} Edit map</button>
           </div>
-          <button class="btn sm" data-act="world-map-settings" title="Map settings">${icon('settings', { size: 14 })}</button>` : ''}
+          <button class="btn sm" data-act="world-map-settings" title="Map settings">${icon('settings', { size: 14 })}</button>
+          <button class="btn sm" data-act="world-fullscreen" title="Full screen map">${icon('maximize', { size: 14 })} Full screen</button>` : ''}
         ` : ''}
       </div>
     </header>
 
     <div class="world-body">
-      <div class="world-stage ${onEarth ? 'is-earth-stage' : ''} ${onAtlas ? 'is-atlas-stage' : ''}" id="world-stage">
-        ${onAtlas ? atlasMarkup() : map ? '<div class="world-assets" id="world-assets">Sculpting the world…</div>' : emptyWorld()}
-        ${onEarth ? earthMarkup() : ''}
+      <div class="world-stage" id="world-stage">
+        ${map ? '<div class="world-assets" id="world-assets">Sculpting the world…</div>' : emptyWorld()}
+        ${map ? `<div class="world-fs-bar">
+          <span>${icon('hex', { size: 16 })} <b>${esc(map.name)}</b> <em>DM map view</em></span>
+          <button class="btn sm" data-act="world-fullscreen-exit">${icon('minimize', { size: 13 })} Exit full screen</button>
+        </div>` : ''}
       </div>
-      <aside class="world-side" id="world-side">${onEarth || onAtlas ? '' : sidePanel()}</aside>
+      <aside class="world-side" id="world-side">${!map ? '' : sidePanel()}</aside>
     </div>
 
-    ${editing && !onEarth && !onAtlas ? toolbar() : ''}
-    ${map && !onEarth && !onAtlas ? `<div class="world-legend" aria-hidden="true">
+    ${editing && map ? toolbar() : ''}
+    ${map ? `<div class="world-legend" aria-hidden="true">
       ${dm ? `<span class="wl-hint">${ui.tool === 'paint' ? 'Drag to paint hexes' : ui.tool === 'erase' ? 'Click a hex to clear it' : ui.tool === 'waypoint' ? 'Click a hex to place a location' : ui.tool === 'text' ? 'Click the map to drop a label' : ui.tool === 'move' ? 'Click a pin, then its destination' : 'Drag to pan · right-drag to rotate · hold right + WASD to fly'}</span>` : `<span class="wl-hint">Drag to pan · right-drag to rotate · hold right + WASD to fly</span>`}
       <span class="wl-coords" id="world-coords"></span>
     </div>` : ''}
@@ -302,36 +338,77 @@ function emptyWorld() {
     return `<div class="world-empty">
       <div class="we-ico">${icon('compass', { size: 28 })}</div>
       <h2>The world is still dark</h2>
-      <p>The DM has not opened a map for this campaign yet.
+      <p>The DM has not opened a world for this campaign yet.
         Once they reveal locations, they will appear here.</p>
     </div>`;
   }
-  return `<div class="world-empty world-empty-webster" style="--photo:url('${NORTH_PONDS_HERO}')">
-    <div class="we-ico">${icon('hex', { size: 28 })}</div>
-    <div class="we-photo-tag">REAL WEBSTER, NY · NORTH PONDS PARK</div>
-    <h2>Build your world</h2>
-    <p>Start with the real ponds, loop trail and surrounding streets of North Ponds Park,
-      or make a blank hex grid and paint it yourself.</p>
-    <button class="we-preset" type="button" data-act="world-create-preset" data-preset="north-ponds">
-      ${icon('map', { size: 17 })}
-      <span><b>North Ponds Park</b><i>750 Holt Road · Webster, NY</i></span>
-      ${icon('arrowRight', { size: 15 })}
-    </button>
-    <form class="world-create" data-act="world-create-map">
-      <label class="field"><span>Blank map name</span>
-        <input name="name" placeholder="Campaign Map" maxlength="60" value="Campaign Map" /></label>
-      <div class="row">
-        <label class="field"><span>Columns</span>
-          <input name="cols" type="number" min="6" max="48" value="12" /></label>
-        <label class="field"><span>Rows</span>
-          <input name="rows" type="number" min="6" max="48" value="10" /></label>
-        <button class="btn" type="button" data-act="world-create-preset" data-preset="webster-ontario">
-          ${icon('globe', { size: 13 })} Webster &amp; Ontario · Lake Ontario
-        </button>
+  return `<div class="world-empty world-empty-webster world-builder" style="--photo:url('${NORTH_PONDS_HERO}')">
+    <div class="world-builder-head">
+      <div class="we-ico">${icon('hex', { size: 28 })}</div>
+      <div>
+        <div class="we-photo-tag">WORLD FORGE · DM SETUP</div>
+        <h2>Create your world</h2>
+        <p>Give the place a name and a purpose, choose its size, and start building.
+          The DM tools stay out of the way until you switch to Edit map.</p>
       </div>
-      <button class="btn primary lg" type="submit">${icon('plus', { size: 15 })} Create a blank world</button>
+    </div>
+    <form class="world-create world-forge" data-act="world-create-map" data-form-key="newmap">
+      ${worldCreateFields()}
+      <div class="world-forge-actions">
+        <button class="btn primary lg" type="submit">${icon('plus', { size: 15 })} Create world</button>
+        <span class="tiny">You can rename it or change its borders later.</span>
+      </div>
+      <details class="world-starters">
+        <summary>${icon('globe', { size: 13 })} Or start from a real place</summary>
+        <div class="world-starters-row">
+          <button class="btn" type="button" data-act="world-create-preset" data-preset="north-ponds">
+            ${icon('map', { size: 13 })} North Ponds Park</button>
+          <button class="btn" type="button" data-act="world-create-preset" data-preset="webster-ontario">
+            ${icon('globe', { size: 13 })} Webster &amp; Ontario</button>
+        </div>
+        <p class="tiny">These use the real local geography as a starting point. You can still edit every hex.</p>
+      </details>
     </form>
   </div>`;
+}
+
+function worldCreateFields() {
+  return `
+    <label class="wf-field"><span>World name</span>
+      <input name="name" maxlength="60" placeholder="e.g. The Hollow Vale" autocomplete="off" /></label>
+
+    <div class="world-field-block">
+      <div class="eyebrow">What kind of world is it?</div>
+      <div class="world-type-grid">
+        ${WORLD_TYPES.map((type) => `
+          <label class="world-type" title="${esc(type.note)}">
+            <input type="radio" name="mapType" value="${type.id}" ${type.id === 'region' ? 'checked' : ''} />
+            <span class="world-type-ic">${icon(type.icon, { size: 15 })}</span>
+            <span class="world-type-copy"><b>${esc(type.name)}</b><i>${esc(type.note)}</i></span>
+          </label>`).join('')}
+      </div>
+    </div>
+
+    <div class="world-field-block">
+      <div class="eyebrow">How big is it?</div>
+      <label class="wf-check world-infinite-check">
+        <input type="checkbox" name="infinite" data-change="world-infinite" />
+        <span><b>Infinite hex world</b><i>The frontier keeps generating as the party travels. Size controls are ignored.</i></span>
+      </label>
+      <div class="world-finite">
+        <div class="world-size-presets">
+          ${[['12', '10', 'Small'], ['24', '20', 'Medium'], ['36', '30', 'Large'], ['48', '48', 'Huge']].map(([cols, rows, label]) => `
+            <button class="world-size-btn ${cols === '12' ? 'on' : ''}" type="button" data-act="world-size" data-cols="${cols}" data-rows="${rows}">
+              <b>${label}</b><span>${cols} × ${rows}</span>
+            </button>`).join('')}
+        </div>
+        <div class="world-dims">
+          <label class="wf-field"><span>Columns</span><input name="cols" type="number" min="6" max="48" value="12" /></label>
+          <label class="wf-field"><span>Rows</span><input name="rows" type="number" min="6" max="48" value="10" /></label>
+          <span class="world-size-hint">6–48 hexes per side</span>
+        </div>
+      </div>
+    </div>`;
 }
 
 function toolbar() {
@@ -377,6 +454,7 @@ function sidePanel() {
   if (!isDM() && !activeMap()) return '';
 
   if (ui.panel === 'map') return mapSettings();
+  if (ui.panel === 'catalog') return worldCatalog();
   if (ui.panel === 'newmap') return newMapForm();
   if (ui.labelId) return labelEditor();
 
@@ -430,7 +508,8 @@ function worldIndex() {
 
     ${dm ? `<div class="wi-actions">
       <button class="btn sm" data-act="world-map-settings">${icon('settings', { size: 13 })} Map settings</button>
-      <button class="btn sm" data-act="world-new-map">${icon('plus', { size: 13 })} New map</button>
+      <button class="btn sm" data-act="world-catalog">${icon('layers', { size: 13 })} Worlds</button>
+      <button class="btn sm primary" data-act="world-new-map">${icon('plus', { size: 13 })} Create world</button>
     </div>` : ''}
   </div>`;
 }
@@ -654,6 +733,10 @@ function mapSettings() {
     </div>
     <label class="wf-field"><span>Name</span>
       <input name="name" maxlength="60" value="${esc(map.name)}" /></label>
+    <label class="wf-field"><span>World type</span>
+      <select name="mapType">
+        ${WORLD_TYPES.map((type) => `<option value="${type.id}" ${worldTypeOf(map).id === type.id ? 'selected' : ''}>${esc(type.name)} — ${esc(type.note)}</option>`).join('')}
+      </select></label>
     <div class="row">
       <label class="wf-field"><span>Columns</span>
         <input name="cols" type="number" min="6" max="48" value="${map.cols}" /></label>
@@ -689,34 +772,63 @@ function mapSettings() {
         ${icon('trash', { size: 13 })} Delete map</button>
     </div>
     <div class="wf-group" style="margin-top:18px">
-      <div class="eyebrow">All maps</div>
-      ${maps().map((m) => `<button type="button" class="wi-row" data-act="world-open-map" data-id="${m.id}">
-        ${icon('layers', { size: 13 })}<span class="grow"><b>${esc(m.name)}</b><i>${m.cols} × ${m.rows}</i></span>
-        ${m.id === map.id ? '<span class="tag">open</span>' : ''}</button>`).join('')}
+      <div class="eyebrow">Worlds by category</div>
+      ${worldGroupsMarkup(map.id)}
     </div>
   </form>`;
 }
 
+function worldMapRow(m, activeId = '') {
+  const type = worldTypeOf(m);
+  return `<button type="button" class="wi-row world-row ${m.id === activeId ? 'on' : ''}" data-act="world-open-map" data-id="${m.id}">
+    <span class="wi-ic" style="--tint:#6b7080">${icon(type.icon, { size: 14 })}</span>
+    <span class="grow"><b>${esc(m.name)}</b><i>${esc(type.name)} · ${m.config?.infinite ? 'Infinite' : `${m.cols} × ${m.rows}`}</i></span>
+    ${m.config?.infinite ? '<span class="tag">∞</span>' : ''}
+    ${m.id === activeId ? '<span class="tag">open</span>' : ''}
+  </button>`;
+}
+
+function worldGroupsMarkup(activeId = '') {
+  return WORLD_TYPES.map((type) => {
+    const list = maps().filter((m) => worldTypeOf(m).id === type.id)
+      .sort((a, b) => String(a.name).localeCompare(String(b.name)));
+    if (!list.length) return '';
+    return `<section class="wc-map-group">
+      <div class="wc-group-head">${icon(type.icon, { size: 13 })} ${esc(type.name)} <span>${list.length}</span></div>
+      ${list.map((m) => worldMapRow(m, activeId)).join('')}
+    </section>`;
+  }).join('');
+}
+
+function worldCatalog() {
+  const total = maps().length;
+  return `<div class="world-catalog">
+    <div class="wc-head">
+      <div class="eyebrow">World library</div>
+      <h2>Every place, categorized.</h2>
+      <p>Villages, caves, dungeons, regions and anything else you have built. Pick one to open it, or make a new world.</p>
+      <button class="btn primary" data-act="world-new-map">${icon('plus', { size: 14 })} Create world</button>
+    </div>
+    ${total ? `<div class="wc-groups">${worldGroupsMarkup(activeMap()?.id)}</div>`
+      : `<div class="wc-empty">${icon('hex', { size: 24 })}<p>No worlds yet.</p><button class="btn sm" data-act="world-new-map">Create the first one</button></div>`}
+    <div class="wc-foot"><button class="btn sm" data-act="world-map-settings">${icon('settings', { size: 13 })} Map settings</button></div>
+  </div>`;
+}
+
 function newMapForm() {
   return `
-  <form class="world-form" data-act="world-create-map" data-form-key="newmap">
+  <form class="world-form world-create-form" data-act="world-create-map" data-form-key="newmap">
     <div class="wf-head">
-      <div><div class="eyebrow">New map</div><h2>Another corner of the world</h2></div>
+      <div><div class="eyebrow">New world</div><h2>Create a place</h2></div>
       <button type="button" class="wf-close" data-act="world-deselect" title="Close">${icon('x', { size: 15 })}</button>
     </div>
-    <label class="wf-field"><span>Name</span>
-      <input name="name" maxlength="60" placeholder="e.g. Downtown" /></label>
-    <div class="row">
-      <label class="wf-field"><span>Columns</span>      <input name="cols" type="number" min="6" max="48" value="12" /></label>
-      <label class="wf-field"><span>Rows</span><input name="rows" type="number" min="6" max="48" value="10" /></label>
+    ${worldCreateFields()}
+    <div class="wf-foot">
+      <button class="btn primary" type="submit">${icon('plus', { size: 13 })} Create world</button>
+      <button class="btn" type="button" data-act="world-create-preset" data-preset="webster-ontario">
+        ${icon('globe', { size: 13 })} Use Webster &amp; Ontario
+      </button>
     </div>
-    <button class="btn primary" type="submit">${icon('plus', { size: 13 })} Create map</button>
-    <button class="btn" type="button" data-act="world-create-preset" data-preset="webster-ontario">
-      ${icon('globe', { size: 13 })} Use the Webster &amp; Ontario region
-    </button>
-    <button class="btn" type="button" data-act="world-create-preset" data-preset="north-ponds">
-      ${icon('map', { size: 13 })} Use the North Ponds Park layout
-    </button>
   </form>`;
 }
 
@@ -2460,7 +2572,28 @@ function syncOverlay() {
       </div>`;
     }).join('');
 
-  overlay.innerHTML = labelHtml + pins;
+  const party = map.tiles
+    .filter((t) => (t.players || []).length)
+    .map((t) => {
+      const members = t.players
+        .map((id) => state.characters.find((c) => c.id === id))
+        .filter(Boolean);
+      if (!members.length) return '';
+      const shown = members.slice(0, 6);
+      const extra = members.length - shown.length;
+      const names = members.map((c) => c.name).join(', ');
+      return `
+      <div class="wp-party" data-party="${t.q}:${t.r}" title="${esc(names)}" aria-label="Party at hex ${t.q}, ${t.r}: ${esc(names)}">
+        <div class="wp-party-stack">
+          ${shown.map((c) => `<span class="wp-party-avatar" title="${esc(c.name)}">
+            <img src="${esc(artPortrait(c))}" alt="" loading="lazy" />
+          </span>`).join('')}
+          ${extra > 0 ? `<span class="wp-party-more">+${extra}</span>` : ''}
+        </div>
+      </div>`;
+    }).join('');
+
+  overlay.innerHTML = labelHtml + pins + party;
   overlayItems = [];
 
   for (const el of overlay.querySelectorAll('[data-pin]')) {
@@ -2475,6 +2608,16 @@ function syncOverlay() {
     });
   }
 
+  for (const el of overlay.querySelectorAll('[data-party]')) {
+    const [q, r] = el.dataset.party.split(':').map(Number);
+    const cell = cells[cellIndex.get(keyOf(q, r))];
+    const point = hexPoint(q, r);
+    overlayItems.push({
+      el,
+      pos: new THREE.Vector3(point.x - center.x, (cell?.elevation || 0.4) + 0.92, point.z - center.z),
+    });
+  }
+
   for (const el of overlay.querySelectorAll('[data-label]')) {
     const label = map.labels.find((l) => l.id === el.dataset.label);
     if (!label) continue;
@@ -2484,6 +2627,7 @@ function syncOverlay() {
       label,
     });
   }
+  positionOverlay();
 }
 
 function positionOverlay() {
@@ -2909,7 +3053,7 @@ function applyMaps() {
   const sig = [
     map.id, map.cols, map.rows, Number(map.config?.density) || 1,
     seasonOf(map), weatherOf(map),
-    map.tiles.map((t) => [t.q, t.r, t.color, t.terrain, t.elevation, t.important, t.waypoint, t.icon, t.label, t.visible].join('~')).join('|'),
+    map.tiles.map((t) => [t.q, t.r, t.color, t.terrain, t.elevation, t.important, t.waypoint, t.icon, t.label, t.visible, (t.players || []).join(',')].join('~')).join('|'),
   ].join('::');
   if (sig !== lastSig) {
     lastSig = sig;
@@ -3320,6 +3464,74 @@ on('world-mode', (el) => {
 on('world-earth', () => goEarth());
 on('world-atlas', () => goAtlas());
 
+let nativeWorldFullscreen = false;
+
+function setWorldFullscreen(on) {
+  const stage = document.getElementById('world-stage');
+  if (!stage) return;
+  stage.classList.toggle('is-fs', on);
+  document.body.classList.toggle('world-map-fs', on);
+  requestAnimationFrame(() => {
+    if (!stageEl) return;
+    resize();
+    updateCamera();
+    positionOverlay();
+  });
+}
+
+function toggleWorldFullscreen() {
+  const stage = document.getElementById('world-stage');
+  if (!stage || !stage.requestFullscreen) {
+    fail(new Error('Full screen is not available in this browser.'));
+    return;
+  }
+  if (document.fullscreenElement) {
+    setWorldFullscreen(false);
+    document.exitFullscreen?.().catch(() => {});
+    return;
+  }
+  // Start presentation mode immediately so the map still fills the screen if
+  // the browser blocks the native Fullscreen API (common in embedded panels).
+  setWorldFullscreen(true);
+  try {
+    stage.requestFullscreen?.()
+      .then(() => { nativeWorldFullscreen = true; })
+      .catch(() => { nativeWorldFullscreen = false; });
+  } catch {
+    // Presentation mode is already active as the fallback.
+  }
+}
+
+on('world-fullscreen', toggleWorldFullscreen);
+on('world-fullscreen-exit', () => {
+  setWorldFullscreen(false);
+  document.exitFullscreen?.().catch(() => {});
+});
+
+document.addEventListener('fullscreenchange', () => {
+  if (state.page !== 'world') return;
+  if (document.fullscreenElement) {
+    nativeWorldFullscreen = true;
+  } else if (nativeWorldFullscreen) {
+    // Native fullscreen was actually entered and the user left it. Keep the
+    // presentation fallback when the request never settled in the first place.
+    nativeWorldFullscreen = false;
+    setWorldFullscreen(false);
+  }
+  requestAnimationFrame(() => {
+    if (!stageEl) return;
+    resize();
+    updateCamera();
+    positionOverlay();
+  });
+});
+
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape' || state.page !== 'world' || document.fullscreenElement) return;
+  const stage = document.getElementById('world-stage');
+  if (stage?.classList.contains('is-fs')) setWorldFullscreen(false);
+});
+
 on('atlas-enter', () => {
   const view = worldAtlas?.getView();
   if (view) enterWorldAt(view.lat, view.lon);
@@ -3493,14 +3705,16 @@ on('world-edit-hex', (el) => {
   render();
 });
 
-on('world-map-settings', () => { ui.panel = 'map'; ui.selected = null; render(); });
-on('world-new-map', () => { ui.panel = 'newmap'; ui.selected = null; render(); });
+on('world-map-settings', () => { ui.panel = 'map'; ui.selected = null; ui.labelId = null; render(); });
+on('world-catalog', () => { ui.panel = 'catalog'; ui.selected = null; ui.labelId = null; render(); });
+on('world-new-map', () => { ui.panel = 'newmap'; ui.selected = null; ui.labelId = null; render(); });
 
 on('world-open-map', (el) => {
   state.mapId = el.dataset.id;
   ui.layer = 'campaign';
   ui.selected = null;
   ui.labelId = null;
+  ui.panel = 'tile';
   needsFit = true;
   lastSig = '';
   render();
@@ -3511,6 +3725,7 @@ on('world-switch-map', (el) => {
   ui.layer = 'campaign';
   ui.selected = null;
   ui.labelId = null;
+  ui.panel = 'tile';
   needsFit = true;
   lastSig = '';
   render();
@@ -3535,19 +3750,42 @@ on('world-zoom', (el) => {
   if (dir === 'out') scheduleFrontierResize();
 });
 
+on('world-size', (el) => {
+  const form = el.closest('form');
+  if (!form) return;
+  form.querySelector('[name=cols]').value = el.dataset.cols;
+  form.querySelector('[name=rows]').value = el.dataset.rows;
+  form.querySelectorAll('.world-size-btn').forEach((b) => b.classList.toggle('on', b === el));
+});
+
+on('world-infinite', (el) => {
+  const form = el.closest('form');
+  if (!form) return;
+  form.classList.toggle('is-infinite', el.checked);
+  form.querySelectorAll('[name=cols], [name=rows]').forEach((input) => { input.disabled = el.checked; });
+});
+
 on('world-create-map', async (form) => {
-  const name = form.querySelector('[name=name]')?.value || 'Campaign Map';
-  const cols = Number(form.querySelector('[name=cols]')?.value) || 12;
-  const rows = Number(form.querySelector('[name=rows]')?.value) || 10;
+  const data = new FormData(form);
+  const infinite = data.get('infinite') === 'on';
+  const payload = {
+    name: String(data.get('name') || '').trim() || 'Campaign Map',
+    mapType: String(data.get('mapType') || 'region'),
+    infinite,
+  };
+  if (!infinite) {
+    payload.cols = Number(data.get('cols')) || 12;
+    payload.rows = Number(data.get('rows')) || 10;
+  }
   try {
-    const { id } = await api('POST', `/api/campaigns/${state.campaign.id}/maps`, { name, cols, rows });
+    const { id } = await api('POST', `/api/campaigns/${state.campaign.id}/maps`, payload);
     await reloadMaps();
     state.mapId = id;
     ui.layer = 'campaign';
     needsFit = true;
     lastSig = '';
     ui.panel = 'tile';
-    toast('World created — paint your first hex', 'ok');
+    toast(infinite ? 'Infinite world created — the frontier is open' : `${payload.name} created — paint your first hex`, 'ok');
     render();
   } catch (err) { fail(err); }
 });
@@ -3581,6 +3819,7 @@ on('world-save-map', async (form) => {
         density: Number(form.querySelector('[name=density]')?.value) || 1,
         season: form.querySelector('[name=season]')?.value || map?.config?.season || 'summer',
         weather: form.querySelector('[name=weather]')?.value || map?.config?.weather || 'clear',
+        mapType: form.querySelector('[name=mapType]')?.value || map?.config?.mapType || 'region',
       },
     });
     await reloadMaps();

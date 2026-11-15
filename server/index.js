@@ -1596,10 +1596,12 @@ app.post('/api/campaigns/:id/maps', auth, requireMember, requireDM, wrap(async (
   const id = uid();
   const isNorthPonds = req.body.preset === 'north-ponds';
   const isRegion = req.body.preset === REGION.id;
-  const isWorld = req.body.preset === 'world';
+  const wantsInfinite = req.body.infinite === true || req.body.infinite === 'true' || req.body.preset === 'world';
+  const isWorld = wantsInfinite;
   const seed = isWorld ? worldSeed() : isRegion ? regionalSeed() : isNorthPonds ? northPondsSeed() : null;
   const name = str(req.body.name).slice(0, 60)
     || (isWorld ? 'The Infinite World' : isRegion ? REGION.name : isNorthPonds ? 'North Ponds Park, Webster' : 'Campaign Map');
+  const mapType = (str(req.body.mapType) || seed?.config?.mapType || (wantsInfinite ? 'world' : 'region')).slice(0, 30);
   const cols = seed?.cols || mapInt(req.body.cols, MAP_MIN, MAP_MAX, 10);
   const rows = seed?.rows || mapInt(req.body.rows, MAP_MIN, MAP_MAX, 8);
 
@@ -1610,6 +1612,12 @@ app.post('/api/campaigns/:id/maps', auth, requireMember, requireDM, wrap(async (
       accent: '#a78bfa', background: '#070810', density: 1,
       season: 'summer', weather: 'clear',
       ...(seed?.config || {}),
+      mapType,
+      ...(wantsInfinite ? {
+        infinite: true,
+        hexSizeMeters: seed?.config?.hexSizeMeters || 160,
+        start: seed?.config?.start || REGION.center,
+      } : {}),
     }), now(), now()],
   );
 
